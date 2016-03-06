@@ -1,0 +1,1 @@
+lda #movingRight  ;start direction

@@ -1,26 +1,28 @@
 import re
 
-DEF, ID, INS, CONST, COL, HASH, CMA, LB, RB, IREG, COMMENT, NEWLINE, BLANK = 'DEFINE', 'IDENTIFIER', 'INSTRUCTION', 'CONSTANT', 'COLON', 'HASH', 'COMMA', 'LEFT BRACKET', 'RIGHT BRACKET', 'INDEX REGISTER', 'COMMENT', 'NL', 'BLANK'
+DEF, ID, INS, INT, COL, MOD, CMA, LB, RB, IREG, COMMENT, NL, BLANK, CONST = 'DEFINE', 'IDENTIFIER', 'INSTRUCTION', 'INTEGER', 'COLON', 'MOD', 'COMMA', 'LEFT BRACKET', 'RIGHT BRACKET', 'INDEX REGISTER', 'COMMENT', 'NEWLINE', 'BLANK', 'CONSTANT'
 skip = {COMMENT, BLANK}
-priorities = [DEF, INS, ID, COMMENT, NEWLINE, BLANK, IREG, COL, RB, LB, CMA, HASH, CONST]
+# priorities = [DEF, INS, ID, MOD, INT, COMMENT, NL, BLANK, IREG, COL, RB, LB, CMA]
+priorities = [INS, ID, INT, NL, BLANK, IREG, COL, RB, LB, CMA]
 
 tokens = {
 	DEF    : r'\bdefine\b',
 	ID     : r'\b([a-zA-z_]\w+)\b',
 	INS    : r'\b([a-zA-Z]{3})\b',
-	CONST  : r'\b([0-9a-fA-F]+)\b|(\$[0-9a-fA-F]+)\b|(#\$[0-9a-fA-F]+)\b',
+	INT    : r'(#?\$?[a-fA-F\d]+)\b',
+	# INT    : r'\b([a-fA-F\d]+)|#([a-fA-F\d]+)|\$([a-fA-F\d]+)|#\$([a-fA-F\d]+)\b',
 	COL    : r':',
-	HASH   : r'#',
+	# MOD    : r'(#|\$|#\$)',
 	CMA    : r',',
 	LB     : r'\(',
 	RB     : r'\)',
 	IREG   : r'\b([xXyY])\b',
-	COMMENT: r';.+',
-	NEWLINE: r'\r\n|\r|\n',
+	# COMMENT: r';.+',
+	NL     : r'\r\n|\r|\n',
 	BLANK  : r'\s+'
 }
 
-valuables = {ID, INS, CONST, IREG}
+valuables = {ID, INS, INT, MOD, IREG}
 
 noOp = 'No operand'
 imd = 'Immediate'
@@ -65,6 +67,26 @@ class Token:
 
 		return '%s: "%s"' % (self.tokenType, self.value)
 
+class Preprocessor:
+	def __init__(self, source):
+		self.source = source.strip()
+		self.preprocess()
+
+	def preprocess(self):
+		define = r'define\s*([a-zA-Z_][a-zA-Z\d_]+)\s+(#?\$?[\da-fA-F]+)'
+		comments = r';.+'
+		blanks = r'^\s*$'
+
+		matcher = re.compile(define)
+		results = matcher.findall(self.source)
+		self.source = re.sub('%s|%s' % (define, comments), '', self.source)
+		self.source = re.sub(blanks, '', self.source, flags=re.MULTILINE)
+
+		for result in results:
+			self.source = re.sub(result[0], result[1], self.source)
+
+		self.source = self.source.strip()
+
 class Tokenizer:
 	def __init__(self, source):
 		self.source = source
@@ -75,7 +97,7 @@ class Tokenizer:
 			self.patterns[token] = re.compile(pattern)
 
 		self.tokenize()
-		self.sanitize()
+		# self.sanitize()
 
 	def tokenize(self):
 		self.tokenStream = []
@@ -85,32 +107,31 @@ class Tokenizer:
 			valid = False
 
 			for token in priorities:
-				pattern = tokens[token]
-				matcher = re.compile(pattern)
-				match = matcher.match(self.source, begin)
+				pattern = self.patterns[token]
+				match = pattern.match(self.source, begin)
 
 				if not match:
 					continue
 
 				valid = True
 				begin = match.end()
+				# print(token, match.group())
 
 				if token in skip:
 					break
 
 				tokenObj = Token(token) if token not in valuables else Token(token, match.group())
-
 				self.tokenStream.append(tokenObj)
 				break
 
 			if not valid:
-				end = self.patterns[NEWLINE].search(self.source, begin)
+				end = self.patterns[NL].search(self.source, begin)
 				raise Exception('Bad token: "%s"' % self.source[begin:end.span()[0]])
 
 	def sanitize(self):
 		tokenStream = []
 
-		while self.tokenStream[0].tokenType == NEWLINE:
+		while self.tokenStream[0].tokenType == NL:
 			self.tokenStream.pop(0)
 
 		for token in self.tokenStream:
@@ -118,53 +139,74 @@ class Tokenizer:
 				tokenStream.append(token)
 				continue
 
-			if tokenStream[-1].tokenType == NEWLINE and tokenStream[-1].tokenType == token.tokenType:
+			if tokenStream[-1].tokenType == NL and tokenStream[-1].tokenType == token.tokenType:
 				continue
 
 			tokenStream.append(token)
 
 		self.tokenStream = tokenStream
 
+class Instruction:
+	def __init__(self, instruction, addrMode, operand):
+		self.instruction = instruction
+		self.addrMode = addrMode
+		self.operand = operand
+
+	def __repr__(self):
+		return self.__str__()
+
+	def __str__(self):
+		return '[%s, %s, %s]' % (self.instruction, self.addrMode, self.operand)
+
 class Parser:
 	def __init__(self, tokens):
-		self.binary = []
-		self.constants = {}
+		self.tokens = tokens
+		self.instructions = []
 		self.labels = {}
 		self.subParsers = {
-			DEF: self.parseDefine,
-			ID : self.parseID,
+			ID : self.parseLabel,
 			INS: self.parseInstruction,
-			CONST: self.parseHex
+			NL : self.pop
 		}
 
 		self.parse()
 
-	def parseDefine(self, tokens):
-		tokens.pop(0)
+	def peek(self):
+		return Token(NL) if len(self.tokens) == 0 else self.tokens[0]
 
-		if tokens[0].tokenType != 'ID':
-			raise Exception('Expected an identifier, got "%s" instead' % tokens[0])
+	def pop(self):
+		token = self.peek()
+		self.tokens.pop(0)
 
-		name = tokens[0].value
-		tokens.pop(0)
+		return token
 
-		token = ""
+	def matches(self, tokens):
+		for i in range(len(tokens)):
+			if self.tokens[i].tokenType != tokens[i]:
+				return i
 
-		if tokens[0].value == '#':
-			token += '#'
-			tokens.pop(0)
+		return True
 
-		if tokens[0].value == '$':
-			token += '$'
-			tokens.pop(0)
+	def consume(self, length):
+		for i in range(length):
+			# print(self.peek())
+			self.pop()
 
-		token += tokens[0].value
-		tokens.pop(0)
+	def parse(self):
+		size = len(self.tokens)
+		while size > 0:
+			token = self.peek()
+			if token.tokenType in self.subParsers:
+				parser = self.subParsers[token.tokenType]
+				parser()
 
-		if len(tokens) > 0:
-			print("There are still unconsumed tokens on this line. They will be ignored")
+			if len(self.tokens) == size:
+				print(self.tokens[:10])
+				print("Premature exit")
+				break # TODO remember to raise exception again when finished with parser
+				# raise Exception('Parser error')
 
-		self.constants[name] = token
+			size = len(self.tokens)
 
 	def parseNumber(self, token):
 		if token.tokenType != 'NBR':
@@ -174,123 +216,78 @@ class Parser:
 
 		if number[0] == '$':
 			return int(token.value[1:], 16)
-
 		else:
 			return int(token.value, 16)
 
-	def parseID(self, tokens):
-		if tokens[0].tokenType != 'ID':
-			raise Exception('"%s" Is not a valid identifier' % tokens[0])
+	def parseLabel(self):
+		grammar = [ID, COL]
 
-		name = tokens[0].value
-		tokens.pop(0)
+		found = self.matches(grammar)
+		if found != True:
+			raise Exception('Expected "%s", but got "%s"' % (grammar[found], self.tokens[found].value))
 
-		if tokens[0].tokenType != 'COL':
-			raise Exception('Expected a :')
+		name = self.tokens[0].value
+		self.consume(len(grammar))
 
 		if name in self.labels:
-			raise Exception('Label: %s already exists' % name)
+			raise Exception('Redefinition of "%s"' % name)
 
-		self.labels[name] = len(self.binary)
+		self.labels[name] = None
 
-	def parseOperand(self, tokens):
-		print('  %s' % tokens)
-		if len(tokens) == 0:
-			return (self.noOp, 0)
+	def parseOperand(self, instruction):
+		if self.matches([NL]):
+			print("No Operand")
+			instruction.addrMode = noOp
+			self.pop()
+			return;
 
-		stream = []
+		if self.matches([ID]):
+			print("Absolute")
+			instruction.addrMode = absl
+			self.pop()
+			return;
+		
+		if self.matches([INT, CMA, IREG]):
+			print("Indexed")
+			self.consume(3)
+			return;
+		
+		if self.matches([LB, INTEGER, CMA, IREG, RB]):
+			print("Other indexed")
+			self.consume(5)
+			return;
+		
+		if self.matches([INT]):
+			print("Immediate")
+			self.pop()
+			return;
+		
+		# if self.matches([]):
+		# 	pass
+		# 	return;
 
-		for token in tokens:
-			if token.tokenType == 'ID':
-				name = token.value
-				t = None
+	def parseInstruction(self):
+		instruction = Instruction(self.pop().value, None, None)
+		self.instructions.append(instruction)
 
-				if name in self.labels:
-					t = Token('NBR', '$%s' % str(self.labels[token.value]).zfill(4))
-				elif name in self.constants:
-					t = Token('NBR', str(self.constants[token.value]))
-				else:
-					t = Token('NBR', str(-1))
-				# print(t)
+		operand = self.parseOperand(instruction)
 
-				stream.append(t)
-			else:
-				stream.append(token)
-
-		print('  %s' % stream)
-
-		# stream.pop(0)
-
-		if stream[0].tokenType == 'LIT':
-			# print('  %s' % stream)
-			stream.pop(0)
-			operand = stream[0]
-			# print('  %s' % stream)
-
-			# if operand.tokenType == 'ID':
-			# 	return (self.imd, self.constants[operand.value])
-			return (self.imd, self.parseNumber(operand))
-
-		operand = stream[0]
-
-		if operand.tokenType == 'NBR':
-			if len(operand.value) == 3:
-				return (self.rel, self.parseNumber(operand))
-			else:
-				return (self.absl, self.parseNumber(operand))
-
-		if operand.tokenType == 'LB':
-			print(stream)
-			stream.pop(0)
-			operand = stream[0]
-
-			if stream[0] == 'CMA':
-				return (self.xInd, self.parseNumber(operand))
-			elif stream[0] == 'RB':
-				return (self.indY, self.parseNumber(operand))
-			else:
-				stream.pop(0)
-				return (self.ind, self.parseNumber(operand))
-
-	def parseInstruction(self, tokens):
-		print(tokens)
-		instruction = tokens[0]
-		tokens.pop(0)
-
-		# print(instruction)
-
-		mode = self.parseOperand(tokens)
-		key = (instruction.value, mode[0])
-
-		if not (key in self.opcodes) and mode[0] == self.rel:
-			key = (key[0], self.absl)
-
-		if not (key in self.opcodes) and mode[0] == self.absl:
-			key = (key[0], self.rel)
-
-		print(key)
-
-		print(self.opcodes[key])
+		# while self.peek().tokenType != NL:
+		# 	self.pop()
 
 	def parseHex(self, token):
 		return int(token.value, 16)
 
-	def parse(self):
-		pass
-		# for line in lines:
-		# 	self.parseLine(line)
-
-	def parseLine(self, line):
-		self.subParsers[line[0].tokenType](line)
-
 file = open('test.asm')
 source = file.read()
-tokenizer = Tokenizer(source)
+preprocessor = Preprocessor(source)
+# print(preprocessor.source)
+tokenizer = Tokenizer(preprocessor.source)
 print(tokenizer.tokenStream)
 # print()
 parser = Parser(tokenizer.tokenStream)
-# print(parser.constants)
-# print()
 # print(parser.labels)
+# print(parser.instructions)
+# print(len(parser.instructions))
 # print()
 # print(parser.opcodes)
