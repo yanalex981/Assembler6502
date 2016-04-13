@@ -1,28 +1,28 @@
 import re
 
-DEF, ID, INS, INT, COL, MOD, CMA, LB, RB, IREG, COMMENT, NL, BLANK, CONST = 'DEFINE', 'IDENTIFIER', 'INSTRUCTION', 'INTEGER', 'COLON', 'MOD', 'COMMA', 'LEFT BRACKET', 'RIGHT BRACKET', 'INDEX REGISTER', 'COMMENT', 'NEWLINE', 'BLANK', 'CONSTANT'
-skip = {COMMENT, BLANK}
-# priorities = [DEF, INS, ID, MOD, INT, COMMENT, NL, BLANK, IREG, COL, RB, LB, CMA]
-priorities = [INS, ID, INT, NL, BLANK, IREG, COL, RB, LB, CMA]
+KEYWORD, INS, TEXT, INT, HASH, HEX, COLON, COMMA, LB, RB, SCOLON, NEWLINE, SPACE, ETC, Xreg, Yreg = 'KEYWORD', 'INSTRUCTION', 'TEXT', 'INTEGER', 'HASH', 'HEX', 'COLON', 'COMMA', 'LEFT BRACKET', 'RIGHT BRACKET', 'SEMICOLON', 'NEWLINE', 'SPACE', 'ETC', 'X Index', 'Y INDEX'
+priorities = [KEYWORD, INT, TEXT, NEWLINE, SPACE, COLON, RB, LB, COMMA, HASH, SCOLON, HEX, ETC]
 
 tokens = {
-	DEF    : r'\bdefine\b',
-	ID     : r'\b([a-zA-z_]\w+)\b',
-	INS    : r'\b([a-zA-Z]{3})\b',
-	INT    : r'(#?\$?[a-fA-F\d]+)\b',
-	# INT    : r'\b([a-fA-F\d]+)|#([a-fA-F\d]+)|\$([a-fA-F\d]+)|#\$([a-fA-F\d]+)\b',
-	COL    : r':',
-	# MOD    : r'(#|\$|#\$)',
-	CMA    : r',',
+	KEYWORD: r'\bdefine\b',
+	TEXT   : r'\b\w+\b',
+	INT    : r'\b[0-9a-fA-F]+\b',
+	HASH   : r'#',
+	SCOLON : r';',
+	Xreg   : r',[xX]',
+	Yreg   : r',[yY]',
+	COMMA  : r',',
+	COLON  : r':',
+	ETC    : r'.+',
+	HEX    : r'\$',
 	LB     : r'\(',
 	RB     : r'\)',
-	IREG   : r'\b([xXyY])\b',
-	# COMMENT: r';.+',
-	NL     : r'\r\n|\r|\n',
-	BLANK  : r'\s+'
+	NEWLINE: r'\r\n|\r|\n',
+	SPACE : r'[ \t]+',
 }
 
-valuables = {ID, INS, INT, MOD, IREG}
+# valuables = {TEXT, INS, INT, MOD, IREG}
+valuables = {TEXT, INT}
 
 noOp = 'No operand'
 imd = 'Immediate'
@@ -36,6 +36,8 @@ xInd = 'X Indirected'
 indY = 'Indirected Y'
 absX = 'Absolute X Indexed'
 absY = 'Absolute Y Indexed'
+
+instructions = {'lsr', 'rti', 'sta', 'bcs', 'brk', 'sed', 'sec', 'beq', 'cpy', 'pla', 'and', 'tax', 'sty', 'dey', 'inx', 'rts', 'sei', 'bne', 'bvc', 'eor', 'asl', 'cmp', 'txs', 'txa', 'jmp', 'ror', 'nop', 'stx', 'inc', 'iny', 'bvs', 'adc', 'cld', 'pha', 'tya', 'ora', 'plp', 'jsr', 'bit', 'lda', 'bmi', 'tsx', 'rol', 'cpx', 'php', 'dex', 'bpl', 'clv', 'clc', 'dec', 'bcc', 'ldy', 'tay', 'sbc', 'cli'}
 
 opcodes = {
 	('brk', noOp)	: 0x00,	('ora', xInd): 0x01,                                         ('ora', zpg): 0x05, ('asl', zpg): 0x06, ('php', noOp): 0x08, ('ora', imd)	: 0x09, ('asl', noOp): 0x0A,                        ('ora', absl): 0x0D, ('asl', absl): 0x0E,
@@ -57,35 +59,18 @@ opcodes = {
 }
 
 class Token:
-	def __init__(self, tokenType, value = None):
+	def __init__(self, line, span, tokenType, value = None):
 		self.tokenType = tokenType
 		self.value = value
+		self.line = line
+		self.begin = span[0]
+		self.end = span[1]
 
 	def __repr__(self):
 		if self.value == None:
-			return '%s' % self.tokenType
+			return '%s %i:%i,%i' % (self.tokenType, self.line, self.begin, self.end)
 
-		return '%s: "%s"' % (self.tokenType, self.value)
-
-class Preprocessor:
-	def __init__(self, source):
-		self.source = source.strip()
-		self.preprocess()
-
-	def preprocess(self):
-		define = r'define\s*([a-zA-Z_][a-zA-Z\d_]+)\s+(#?\$?[\da-fA-F]+)'
-		comments = r';.+'
-		blanks = r'^\s*$'
-
-		matcher = re.compile(define)
-		results = matcher.findall(self.source)
-		self.source = re.sub('%s|%s' % (define, comments), '', self.source)
-		self.source = re.sub(blanks, '', self.source, flags=re.MULTILINE)
-
-		for result in results:
-			self.source = re.sub(result[0], result[1], self.source)
-
-		self.source = self.source.strip()
+		return '%s %i:%i,%i: "%s"' % (self.tokenType, self.line, self.begin, self.end, re.sub(r'\r|\n', '', self.value))
 
 class Tokenizer:
 	def __init__(self, source):
@@ -96,55 +81,204 @@ class Tokenizer:
 			pattern = tokens[token]
 			self.patterns[token] = re.compile(pattern)
 
+		self.lines = source.splitlines(True)
+
 		self.tokenize()
-		# self.sanitize()
 
 	def tokenize(self):
 		self.tokenStream = []
 
-		begin = 0
-		while begin < len(self.source):
+		linePos = 1
+		for line in self.lines:
+			begin = 0
 			valid = False
+			while begin < len(line):
+				for tokenType in priorities:
+					pattern = self.patterns[tokenType]
+					match = pattern.match(line, begin)
 
-			for token in priorities:
-				pattern = self.patterns[token]
-				match = pattern.match(self.source, begin)
+					if not match:
+						continue
 
-				if not match:
-					continue
-
-				valid = True
-				begin = match.end()
-				# print(token, match.group())
-
-				if token in skip:
+					valid = True
+					begin = match.end()
+					tokenObj = Token(linePos, match.span(), tokenType, match.group()) if tokenType in valuables else Token(linePos, match.span(), tokenType)
+					self.tokenStream.append(tokenObj)
 					break
 
-				tokenObj = Token(token) if token not in valuables else Token(token, match.group())
-				self.tokenStream.append(tokenObj)
-				break
+				if not valid:
+					print("Not found...")
+					break
 
-			if not valid:
-				end = self.patterns[NL].search(self.source, begin)
-				raise Exception('Bad token: "%s"' % self.source[begin:end.span()[0]])
+			linePos += 1
 
-	def sanitize(self):
-		tokenStream = []
+class Lexer:
+	def __init__(self, tokens):
+		self.tokens = tokens
 
-		while self.tokenStream[0].tokenType == NL:
-			self.tokenStream.pop(0)
+		self.stripComments()
+		self.stripHeadTail()
+		self.stripSpaces()
+		self.textToInstructions()
+		self.textToIndex()
 
-		for token in self.tokenStream:
-			if len(tokenStream) == 0:
-				tokenStream.append(token)
-				continue
+	def stripSpaces(self):
+		self.tokens = [token for token in self.tokens if token.tokenType != SPACE]
 
-			if tokenStream[-1].tokenType == NL and tokenStream[-1].tokenType == token.tokenType:
-				continue
+	def stripHeadTail(self):
+		i = 0
+		while self.tokens[i].tokenType == NEWLINE:
+			self.tokens.pop(0)
 
-			tokenStream.append(token)
+		i = len(self.tokens) - 1
+		while self.tokens[i].tokenType == NEWLINE:
+			self.tokens.pop()
 
-		self.tokenStream = tokenStream
+	def stripComments(self):
+		tokens = []
+		skip = False
+
+		for token in self.tokens:
+			if token.tokenType == SCOLON:
+				skip = True
+			elif token.tokenType == NEWLINE:
+				skip = False
+
+			if not skip:
+				tokens.append(token)
+
+		self.tokens = tokens
+
+	def textToIndex(self):
+		commaPassed = False
+		for token in self.tokens:
+			if token.tokenType == COMMA:
+				commaPassed = True
+			else:
+				if token.tokenType == TEXT and commaPassed:
+					if token.value.lower() == 'x':
+						token.tokenType = Xreg
+					elif token.value.lower() == 'y':
+						token.tokenType = Yreg
+
+				commaPassed = False
+
+	def textToInstructions(self):
+		if self.tokens[0].tokenType == TEXT and self.tokens[0].value in instructions:
+			self.tokens[0].tokenType == INS
+
+		newlinePassed = False
+		for token in self.tokens:
+			if token.tokenType == NEWLINE:
+				newlinePassed = True
+			else:
+				if token.tokenType == TEXT and newlinePassed:
+					if token.value in instructions:
+						token.tokenType = INS
+
+				newlinePassed = False
+
+class TokenStream:
+	def __init__(self, tokens):
+		self.tokens = tokens
+		self.i = 0
+
+	def peek(self, symbol):
+		return True if self.tokens[self.i].tokenType == symbol else False
+
+	def backtrack(self):
+		if self.i > 0:
+			self.i -= 1
+
+	# return a Newline when reached end of line
+	def accept(self, symbol):
+		if self.peek(symbol):
+			self.i += 1
+
+			return True
+
+		return False
+
+	def expect(self, symbol):
+		if self.accept(symbol):
+			return True
+
+		raise Exception('%s expected, but encountered %s instead' % (symbol, self.tokens[self.i]))
+
+	def next(self):
+		self.i += 1
+
+	def empty(self):
+		return self.size() == 0
+
+	def size(self):
+		return len(self.tokens)
+
+class Parser:
+	def __init__(self, tokens):
+		self.tokens = TokenStream(tokens)
+		self.consts = {}
+		self.lines = []
+		self.labels = {}
+		self.subParsers = {
+			# TEXT : self.parseLabel,
+			# INS: self.parseInstruction,
+			# NEWLINE : self.pop()
+		}
+
+		self.parseProgram()
+
+	def parseDefine(self):
+		self.tokens.expect(TEXT)
+
+		if TEXT in self.consts:
+			raise Exception('Redefinition of "%s"' % self.tokens.tokens[self.tokens.i])
+
+		self.consts[TEXT] = []
+
+		if self.tokens.accept(HASH):
+			pass
+
+		if self.tokens.accept(HEX):
+			pass
+
+		if self.tokens.accept(INT):
+			pass
+
+	def parseLabel(self):
+		self.tokens.expect(COLON)
+
+		if self.tokens.accept(INS):
+			self.parseInstruction()
+
+	def parseOperand(self):
+		pass
+
+	def parseNumber(self):
+		pass
+
+	def parseInstruction(self):
+		pass
+
+	def parseLine(self):
+		if self.tokens.accept(NEWLINE):
+			pass
+		elif self.tokens.accept(KEYWORD):
+			self.parseDefine()
+			self.tokens.expect(NEWLINE)
+		elif self.tokens.accept(TEXT):
+			self.parseLabel()
+			self.tokens.expect(NEWLINE)
+		elif self.tokens.accept(INS):
+			self.parseInstruction()
+			self.tokens.expect(NEWLINE)
+		else:
+			raise Exception('Syntax error: "%s"' % self.tokens.tokens[self.tokens.i])
+
+	def parseProgram(self):
+		while not self.tokens.empty():
+			self.parseLine()
+			# self.tokens.expect(NEWLINE)
 
 class Instruction:
 	def __init__(self, instruction, addrMode, operand):
@@ -158,135 +292,20 @@ class Instruction:
 	def __str__(self):
 		return '[%s, %s, %s]' % (self.instruction, self.addrMode, self.operand)
 
-class Parser:
-	def __init__(self, tokens):
-		self.tokens = tokens
-		self.instructions = []
-		self.labels = {}
-		self.subParsers = {
-			ID : self.parseLabel,
-			INS: self.parseInstruction,
-			NL : self.pop
-		}
-
-		self.parse()
-
-	def peek(self):
-		return Token(NL) if len(self.tokens) == 0 else self.tokens[0]
-
-	def pop(self):
-		token = self.peek()
-		self.tokens.pop(0)
-
-		return token
-
-	def matches(self, tokens):
-		for i in range(len(tokens)):
-			if self.tokens[i].tokenType != tokens[i]:
-				return i
-
-		return True
-
-	def consume(self, length):
-		for i in range(length):
-			# print(self.peek())
-			self.pop()
-
-	def parse(self):
-		size = len(self.tokens)
-		while size > 0:
-			token = self.peek()
-			if token.tokenType in self.subParsers:
-				parser = self.subParsers[token.tokenType]
-				parser()
-
-			if len(self.tokens) == size:
-				print(self.tokens[:10])
-				print("Premature exit")
-				break # TODO remember to raise exception again when finished with parser
-				# raise Exception('Parser error')
-
-			size = len(self.tokens)
-
-	def parseNumber(self, token):
-		if token.tokenType != 'NBR':
-			raise Exception('"%s" Is not a valid number' % token)
-
-		number = token.value
-
-		if number[0] == '$':
-			return int(token.value[1:], 16)
-		else:
-			return int(token.value, 16)
-
-	def parseLabel(self):
-		grammar = [ID, COL]
-
-		found = self.matches(grammar)
-		if found != True:
-			raise Exception('Expected "%s", but got "%s"' % (grammar[found], self.tokens[found].value))
-
-		name = self.tokens[0].value
-		self.consume(len(grammar))
-
-		if name in self.labels:
-			raise Exception('Redefinition of "%s"' % name)
-
-		self.labels[name] = None
-
-	def parseOperand(self, instruction):
-		if self.matches([NL]):
-			print("No Operand")
-			instruction.addrMode = noOp
-			self.pop()
-			return;
-
-		if self.matches([ID]):
-			print("Absolute")
-			instruction.addrMode = absl
-			self.pop()
-			return;
-		
-		if self.matches([INT, CMA, IREG]):
-			print("Indexed")
-			self.consume(3)
-			return;
-		
-		if self.matches([LB, INTEGER, CMA, IREG, RB]):
-			print("Other indexed")
-			self.consume(5)
-			return;
-		
-		if self.matches([INT]):
-			print("Immediate")
-			self.pop()
-			return;
-		
-		# if self.matches([]):
-		# 	pass
-		# 	return;
-
-	def parseInstruction(self):
-		instruction = Instruction(self.pop().value, None, None)
-		self.instructions.append(instruction)
-
-		operand = self.parseOperand(instruction)
-
-		# while self.peek().tokenType != NL:
-		# 	self.pop()
-
-	def parseHex(self, token):
-		return int(token.value, 16)
+class CodeGenerator:
+	# coming soon. Hopefully...
+	pass
 
 file = open('test.asm')
 source = file.read()
-preprocessor = Preprocessor(source)
+# preprocessor = Preprocessor(source)
 # print(preprocessor.source)
-tokenizer = Tokenizer(preprocessor.source)
-print(tokenizer.tokenStream)
-# print()
-parser = Parser(tokenizer.tokenStream)
-# print(parser.labels)
+tokenizer = Tokenizer(source)
+# print(tokenizer.tokenStream)
+lexer = Lexer(tokenizer.tokenStream)
+print(lexer.tokens)
+parser = Parser(lexer.tokens)
+print(parser.consts)
 # print(parser.instructions)
 # print(len(parser.instructions))
 # print()
