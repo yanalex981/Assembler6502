@@ -1,28 +1,44 @@
 import re
+import itertools
 
-KEYWORD, INS, TEXT, INT, HASH, HEX, COLON, COMMA, LB, RB, SCOLON, NEWLINE, SPACE, ETC, Xreg, Yreg = 'KEYWORD', 'INSTRUCTION', 'TEXT', 'INTEGER', 'HASH', 'HEX', 'COLON', 'COMMA', 'LEFT BRACKET', 'RIGHT BRACKET', 'SEMICOLON', 'NEWLINE', 'SPACE', 'ETC', 'X Index', 'Y INDEX'
-priorities = [KEYWORD, INT, TEXT, NEWLINE, SPACE, COLON, RB, LB, COMMA, HASH, SCOLON, HEX, ETC]
+class TokenMatcher:
+	def __init__(self, label, regex):
+		self.label = label
+		self.matcher = re.compile(regex)
 
-tokens = {
-	KEYWORD: r'\bdefine\b',
-	TEXT   : r'\b\w+\b',
-	INT    : r'\b[0-9a-fA-F]+\b',
-	HASH   : r'#',
-	SCOLON : r';',
-	Xreg   : r',[xX]',
-	Yreg   : r',[yY]',
-	COMMA  : r',',
-	COLON  : r':',
-	ETC    : r'.+',
-	HEX    : r'\$',
-	LB     : r'\(',
-	RB     : r'\)',
-	NEWLINE: r'\r\n|\r|\n',
-	SPACE : r'[ \t]+',
-}
+	def __call__(self, string, pos=0):
+		return self.matcher.match(string, pos)
 
-# valuables = {TEXT, INS, INT, MOD, IREG}
-valuables = {TEXT, INT}
+	def __str__(self):
+		return self.label
+
+	__repr__ = __str__
+
+mnemonic = {'ldx', 'lsr', 'rti', 'sta', 'bcs', 'brk', 'sed', 'sec', 'beq', 'cpy', 'pla', 'and', 'tax', 'sty', 'dey', 'inx', 'rts', 'sei', 'bne', 'bvc', 'eor', 'asl', 'cmp', 'txs', 'txa', 'jmp', 'ror', 'nop', 'stx', 'inc', 'iny', 'bvs', 'adc', 'cld', 'pha', 'tya', 'ora', 'plp', 'jsr', 'bit', 'lda', 'bmi', 'tsx', 'rol', 'cpx', 'php', 'dex', 'bpl', 'clv', 'clc', 'dec', 'bcc', 'ldy', 'tay', 'sbc', 'cli'}
+
+DEFINE = TokenMatcher('New const'    , r'\bdefine\b')
+ID     = TokenMatcher('Identifier'   , r'[_a-zA-Z][_a-zA-Z0-9]*')
+VALUE  = TokenMatcher('Value'        , r'(\d+|\$[0-9a-fA-F]+)\b')
+SPACE  = TokenMatcher('Space'        , r'[ \t]+')
+COLON  = TokenMatcher('Colon'        , r':')
+SCOLON = TokenMatcher('Comment begin', r';')
+HASH   = TokenMatcher('Immediate'    , r'#')
+HEX    = TokenMatcher('Hex prefix'   , r'\$')
+LB     = TokenMatcher('Left bracket' , r'\(')
+RB     = TokenMatcher('Right bracket', r'\)')
+COMMA  = TokenMatcher('Comma'        , r',')
+XI     = TokenMatcher('X index'      , r'\b[Xx]\b')
+YI     = TokenMatcher('Y index'      , r'\b[Yy]\b')
+EOL    = TokenMatcher('End of line'  , r'\r\n|\r|\n')
+
+instRegex = ''
+for m in mnemonic:
+	instRegex += '{}|'.format(m)
+instRegex = '\\b({})\\b'.format(instRegex[:-1])
+INS    = TokenMatcher('Instruction'  , instRegex)
+
+# lineBegin = [DEFINE, SCOLON, ID, IST, EOL]
+unambiguous = [INS, HASH, VALUE, ID, XI, YI, COMMA, COLON, LB, RB]
 
 noOp = 'No operand'
 imd = 'Immediate'
@@ -36,8 +52,6 @@ xInd = 'X Indirected'
 indY = 'Indirected Y'
 absX = 'Absolute X Indexed'
 absY = 'Absolute Y Indexed'
-
-instructions = {'lsr', 'rti', 'sta', 'bcs', 'brk', 'sed', 'sec', 'beq', 'cpy', 'pla', 'and', 'tax', 'sty', 'dey', 'inx', 'rts', 'sei', 'bne', 'bvc', 'eor', 'asl', 'cmp', 'txs', 'txa', 'jmp', 'ror', 'nop', 'stx', 'inc', 'iny', 'bvs', 'adc', 'cld', 'pha', 'tya', 'ora', 'plp', 'jsr', 'bit', 'lda', 'bmi', 'tsx', 'rol', 'cpx', 'php', 'dex', 'bpl', 'clv', 'clc', 'dec', 'bcc', 'ldy', 'tay', 'sbc', 'cli'}
 
 opcodes = {
 	('brk', noOp)	: 0x00,	('ora', xInd): 0x01,                                         ('ora', zpg): 0x05, ('asl', zpg): 0x06, ('php', noOp): 0x08, ('ora', imd)	: 0x09, ('asl', noOp): 0x0A,                        ('ora', absl): 0x0D, ('asl', absl): 0x0E,
@@ -58,183 +72,126 @@ opcodes = {
 	('beq', rel)	: 0xF0,	('sbc', indY): 0xF1,                                         ('sbc', zpx): 0xF5, ('inc', zpx): 0xF6, ('sed', noOp): 0xF8, ('sbc', absY)	: 0xF9,                                             ('sbc', absX): 0xFD, ('inc', absX): 0xFE
 }
 
-class Token:
-	def __init__(self, line, span, tokenType, value = None):
-		self.tokenType = tokenType
-		self.value = value
-		self.line = line
-		self.begin = span[0]
-		self.end = span[1]
+class Line:
+	def __init__(self, pos, line):
+		self.pos = pos
+		self.line = re.sub(r'\s+$', '', line)
+
+	def __str__(self):
+		return self.line
 
 	def __repr__(self):
-		if self.value == None:
-			return '%s %i:%i,%i' % (self.tokenType, self.line, self.begin, self.end)
+		return "{}:'{}'".format(self.pos, self.line)
 
-		return '%s %i:%i,%i: "%s"' % (self.tokenType, self.line, self.begin, self.end, re.sub(r'\r|\n', '', self.value))
-
-class Tokenizer:
+class Preprocessor:
 	def __init__(self, source):
-		self.source = source
-		self.patterns = {}
-
-		for token in tokens:
-			pattern = tokens[token]
-			self.patterns[token] = re.compile(pattern)
+		self.consts = {}
 
 		self.lines = source.splitlines(True)
+		self.lines = [Line(n, line) for (n, line) in zip(range(1, len(self.lines) + 1), self.lines)]
+		self.lines = [Line(line.pos, line.line) for line in self.lines]
+		self.lines = [Line(line.pos, line.line[:len(line.line) if line.line.find(';') == -1 else line.line.find(';')]) for line in self.lines]
+		defines = [re.split(r'\s+', line.line.strip()) for line in self.lines if line.line.startswith('define')]
+		self.lines = [line for line in self.lines if not line.line.startswith('define')]
+		self.lines = [line for line in self.lines if len(line.line) > 0]
+		
+		# TODO check names and values
 
-		self.tokenize()
+		for const in defines:
+			self.consts[const[1]] = const[2]
 
-	def tokenize(self):
-		self.tokenStream = []
+class Token:
+	def __init__(self, line, start, string):
+		self.tokenType = None
+		self.line = line
+		self.start = start
+		self.string = re.sub(r'[ \t]+', '', string)
 
-		linePos = 1
-		for line in self.lines:
-			begin = 0
-			valid = False
-			while begin < len(line):
-				for tokenType in priorities:
-					pattern = self.patterns[tokenType]
-					match = pattern.match(line, begin)
+	def __repr__(self):
+		string = re.sub(r'[\r\n]+', '', self.string)
 
-					if not match:
-						continue
+		return "{} at {}:{}:'{}'".format(self.tokenType, self.line, self.start, string)
 
-					valid = True
-					begin = match.end()
-					tokenObj = Token(linePos, match.span(), tokenType, match.group()) if tokenType in valuables else Token(linePos, match.span(), tokenType)
-					self.tokenStream.append(tokenObj)
-					break
-
-				if not valid:
-					print("Not found...")
-					break
-
-			linePos += 1
-
-class Lexer:
-	def __init__(self, tokens):
-		self.tokens = tokens
-
-		self.stripComments()
-		self.stripHeadTail()
-		self.stripSpaces()
-		self.textToInstructions()
-		self.textToIndex()
-
-	def stripSpaces(self):
-		self.tokens = [token for token in self.tokens if token.tokenType != SPACE]
-
-	def stripHeadTail(self):
-		i = 0
-		while self.tokens[i].tokenType == NEWLINE:
-			self.tokens.pop(0)
-
-		i = len(self.tokens) - 1
-		while self.tokens[i].tokenType == NEWLINE:
-			self.tokens.pop()
-
-	def stripComments(self):
-		tokens = []
-		skip = False
-
-		for token in self.tokens:
-			if token.tokenType == SCOLON:
-				skip = True
-			elif token.tokenType == NEWLINE:
-				skip = False
-
-			if not skip:
-				tokens.append(token)
-
-		self.tokens = tokens
-
-	def textToIndex(self):
-		commaPassed = False
-		for token in self.tokens:
-			if token.tokenType == COMMA:
-				commaPassed = True
-			else:
-				if token.tokenType == TEXT and commaPassed:
-					if token.value.lower() == 'x':
-						token.tokenType = Xreg
-					elif token.value.lower() == 'y':
-						token.tokenType = Yreg
-
-				commaPassed = False
-
-	def textToInstructions(self):
-		if self.tokens[0].tokenType == TEXT and self.tokens[0].value in instructions:
-			self.tokens[0].tokenType == INS
-
-		newlinePassed = False
-		for token in self.tokens:
-			if token.tokenType == NEWLINE:
-				newlinePassed = True
-			else:
-				if token.tokenType == TEXT and newlinePassed:
-					if token.value in instructions:
-						token.tokenType = INS
-
-				newlinePassed = False
+	__str__ = __repr__
 
 class TokenStream:
-	def __init__(self, tokens):
-		self.tokens = tokens
-		self.i = 0
+	def __init__(self, line):
+		self.pos = 0
+		self.source = str(line)
 
-	def peek(self, symbol):
-		return True if self.tokens[self.i].tokenType == symbol else False
+	# def equals(self, s):
+	# 	r = '\\b{}\\b'.format(s)
 
-	def backtrack(self):
-		if self.i > 0:
-			self.i -= 1
+	# 	return re.match(r, self.pos)
 
-	# return a Newline when reached end of line
-	def accept(self, symbol):
-		if self.peek(symbol):
-			self.i += 1
+	def accept(self, matcher):
+		return matcher(self.source, self.pos)
 
-			return True
+	def consume(self, match):
+		self.pos = match.end()
 
-		return False
+	def expect(self, matcher):
+		match = self.accept(matcher)
 
-	def expect(self, symbol):
-		if self.accept(symbol):
-			return True
+		if not match:
+			raise Error('Error trying to match')
 
-		raise Exception('%s expected, but encountered %s instead' % (symbol, self.tokens[self.i]))
+		self.consume(match)
 
-	def next(self):
-		self.i += 1
+	def hasNext(self):
+		return self.pos < len(self.source)
 
-	def empty(self):
-		return self.size() == 0
+	def __str__(self):
+		return str(self.source[self.pos:])
 
-	def size(self):
-		return len(self.tokens)
+	__repr__ = __str__
+
+class Tokenizer:
+	def __init__(self, lines):
+		self.lines = [self.tokenizeLine(line) for line in lines]
+		print(self.lines)
+
+	def tokenizeLine(self, line):
+		stream = TokenStream(line)
+		tokens = []
+
+		while stream.hasNext():
+			if stream.accept(SPACE):
+				stream.expect(SPACE)
+				continue
+
+			valid = False
+
+			for matcher in unambiguous:
+				match = stream.accept(matcher)
+
+				if not match:
+					continue
+
+				stream.expect(matcher)
+				t = Token(line.pos, match.start(), match.group())
+				t.tokenType = matcher.label
+				tokens.append(t)
+				valid = True
+				break
+
+			if not valid:
+				print('Unknown:{}'.format(stream))
+				break
+
+		return tokens
 
 class Parser:
 	def __init__(self, tokens):
-		self.tokens = TokenStream(tokens)
-		self.consts = {}
-		self.lines = []
-		self.labels = {}
-		self.subParsers = {
-			# TEXT : self.parseLabel,
-			# INS: self.parseInstruction,
-			# NEWLINE : self.pop()
-		}
-
-		self.parseProgram()
+		pass
 
 	def parseDefine(self):
-		self.tokens.expect(TEXT)
+		self.tokens.expect(WORD)
 
-		if TEXT in self.consts:
+		if WORD in self.consts:
 			raise Exception('Redefinition of "%s"' % self.tokens.tokens[self.tokens.i])
 
-		self.consts[TEXT] = []
+		self.consts[WORD] = []
 
 		if self.tokens.accept(HASH):
 			pass
@@ -242,7 +199,7 @@ class Parser:
 		if self.tokens.accept(HEX):
 			pass
 
-		if self.tokens.accept(INT):
+		if self.tokens.accept(VALUE):
 			pass
 
 	def parseLabel(self):
@@ -261,24 +218,24 @@ class Parser:
 		pass
 
 	def parseLine(self):
-		if self.tokens.accept(NEWLINE):
+		if self.tokens.accept(EOL):
 			pass
-		elif self.tokens.accept(KEYWORD):
+		elif self.tokens.accept(DEFINE):
 			self.parseDefine()
-			self.tokens.expect(NEWLINE)
-		elif self.tokens.accept(TEXT):
+			self.tokens.expect(EOL)
+		elif self.tokens.accept(WORD):
 			self.parseLabel()
-			self.tokens.expect(NEWLINE)
+			self.tokens.expect(EOL)
 		elif self.tokens.accept(INS):
 			self.parseInstruction()
-			self.tokens.expect(NEWLINE)
+			self.tokens.expect(EOL)
 		else:
 			raise Exception('Syntax error: "%s"' % self.tokens.tokens[self.tokens.i])
 
 	def parseProgram(self):
 		while not self.tokens.empty():
 			self.parseLine()
-			# self.tokens.expect(NEWLINE)
+			# self.tokens.expect(EOL)
 
 class Instruction:
 	def __init__(self, instruction, addrMode, operand):
@@ -298,15 +255,12 @@ class CodeGenerator:
 
 file = open('test.asm')
 source = file.read()
-# preprocessor = Preprocessor(source)
-# print(preprocessor.source)
-tokenizer = Tokenizer(source)
-# print(tokenizer.tokenStream)
-lexer = Lexer(tokenizer.tokenStream)
-print(lexer.tokens)
-parser = Parser(lexer.tokens)
-print(parser.consts)
-# print(parser.instructions)
-# print(len(parser.instructions))
+preprocessor = Preprocessor(source)
+# print(preprocessor.lines)
+tokenizer = Tokenizer(preprocessor.lines)
+# parser = Parser(lexer.tokens)
+# print(parser.consts)
+# print(parser.mnemonic)
+# print(len(parser.mnemonic))
 # print()
 # print(parser.opcodes)

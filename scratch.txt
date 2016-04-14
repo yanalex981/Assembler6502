@@ -1,46 +1,39 @@
-define	define
+DEFINE	define
 ID		[_a-zA-Z][_a-zA-Z0-9]+
-VALUE	[#$0-9a-zA-Z]+
-space	[\t ]+
-colon	:
-hash	#
-hex		$
-lb		(
-rb		)
-comma	,
-X		[X|x]
-Y		[Y|y]
+VALUE	\d+|\$[\da-zA-Z]+
+SPACE	[\t ]+
+COLON	:
+HASH	#
+HEX		$
+LB		(
+RB		)
+COMMA	,
+X		[Xx]
+Y		[Yy]
 EOL		\n|\r\n|\r
 
 file
 	line EOF
 
 line
-	define ID VALUE EOL line?
-	ID : EOL line?
-	instruction EOL line?
-	ID : instruction EOL line?
+	ID :
+	ID : instruction
+	instruction
 
 instruction
 	mnemonic parameters?
 
 parameters
 	immediate
-		# number
+		# (number | ID)
 	azr
-		number
-	absolute_ix
-		number , index
-	absolute_iy
-		number , index
-	zero_ix
-		number , index
-	zero_iy
-		number , index
+		number | ID
+	aixy, zixy
+		(number | ID) , index
 	zero_xind
-		( number , index )
+		( (number | ID) , index )
 	zero_indy
-		( number ) , index
+		( (number | ID) ) , index
 
 number
 	HEX
@@ -54,6 +47,6 @@ dec
 
 index
 	X
-		[X|x]
+		[Xx]
 	Y
-		[Y|y]
+		[Yy]
