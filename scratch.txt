@@ -1,21 +1,21 @@
-DEFINE	define
+MNE		list...
+DEF		define
 ID		[_a-zA-Z][_a-zA-Z0-9]+
-VALUE	\d+|\$[\da-zA-Z]+
+CONST	\d+|\$[\da-zA-Z]+
 SPACE	[\t ]+
 COLON	:
 HASH	#
-HEX		$
 LB		(
 RB		)
-COMMA	,
-X		[Xx]
-Y		[Yy]
+XI		,\s*[Xx]
+YI		,\s*[Yy]
 EOL		\n|\r\n|\r
 
 file
 	line EOF
 
 line
+	DEF ID CONST
 	ID :
 	ID : instruction
 	instruction
@@ -25,15 +25,20 @@ instruction
 
 parameters
 	immediate
-		# (number | ID)
+		# operand
 	azr
-		number | ID
+		operand
 	aixy, zixy
-		(number | ID) , index
+		operand XI|YI
+	indirect
+		( operand )
 	zero_xind
-		( (number | ID) , index )
+		( operand XI )
 	zero_indy
-		( (number | ID) ) , index
+		( operand ) YI
+
+operand
+	number | ID
 
 number
 	HEX
@@ -50,3 +55,75 @@ index
 		[Xx]
 	Y
 		[Yy]
+
+Token:
+	Text
+	Type
+
+Preprocessor
+	in : string source
+		-> remove comments
+		-> index constants
+	out: array of lines
+		dict of constants
+
+Tokenizer
+	in : array of lines
+		-> array of array of tokens
+			{MNE, ID, VALUE, COLON, HASH, LB, RB, COMMA, X, Y}
+		-> remove blank lines
+	out: array of lines of tokens
+
+	Token
+		Type
+			ID		[_a-zA-Z][_a-zA-Z0-9]+
+			VALUE	\d+|\$[\da-zA-Z]+
+			COLON	:
+			HASH	#
+			LB		(
+			RB		)
+			COMMA	,
+			X		[Xx]
+			Y		[Yy]
+		origin
+		match
+		line
+		begin
+
+Parser
+	in : array of array of tokens
+			{MNE, ID, VALUE, COLON, HASH, LB, RB, COMMA, X, Y}
+		-> flatten list into single array of parser tokens
+			{MNE, ID, VALUE, COLON, HASH, LB, RB, COMMA, X, Y}
+		-> make loc
+			{loc, MNE, ID, VALUE, HASH, LB, RB, COMMA, X, Y}
+		-> index labels
+		-> remove ID
+			{loc, ref, MNE, VALUE, HASH, LB, RB, COMMA, X, Y}
+		-> combine COMMA and X|Y
+			{ref, MNE, VALUE, COLON, HASH, LB, RB, ix, iy}
+		-> substitute and evaluate consts
+			{ref, const, MNE, COLON, HASH, LB, RB, ix, iy}
+		-> deduce possible addressing modes
+			-> combine brackets to produce indirection
+			-> check for indexing after indirection
+		-> array of parser tokens
+		-> remove labels, colons
+		-> 
+	out: array of parser tokens
+
+	Token
+		Type
+			  loc -> (ID) COLON
+			  ref -> ID name in label
+			const -> ID name in consts or VALUE
+			   ix -> COMMA X
+			   iy -> COMMA Y
+
+			HASH	#
+			LB		(
+			RB		)
+
+Code Generator
+	in : array of instructions
+	out: stream of bytes
