@@ -169,7 +169,6 @@ class Tokenizer:
 
 		return tokens
 
-# TODO Try to make this a generator
 class TokenStream:
 	def __init__(self, tokens):
 		self.tokens = tokens
@@ -220,7 +219,6 @@ class Parser:
 		self.labels = {}
 		self.addresses = {}
 		self.ins_counter = 0
-		# self.tokens = [[ParserToken(token) for token in line] for line in tokens]
 		self.tokens = tokens
 		self.results = []
 
@@ -237,7 +235,7 @@ class Parser:
 					print(self.stream)
 					raise Exception('Syntax error')
 
-		print(self.results)
+		# print(self.results)
 
 	def parseInt(self, s):
 		b10 = re.match(r'(\d+)', s)
@@ -330,8 +328,107 @@ class Parser:
 
 		self.labels[name] = self.ins_counter
 
+class Instruction:
+	def __init__(self, mnemonic, mode, value=None, line_number=None):
+		self.mnemonic = mnemonic
+		self.mode = mode
+		self.value = value
+		self.line_number = line_number
+		self.opcode = 0
+		self.size = 0
+
+	def __repr__(self):
+		return str((str(self.mnemonic), str(self.mode), str(self.value)))
+
+class ParserStream:
+	def __init__(self, tokens):
+		self.tokens = tokens
+		self.pos = 0
+
+	def hasNext(self):
+		return self.pos < len(self.tokens)
+
+	def get(self):
+		return self.tokens[self.pos]
+
+	def accept(self, token):
+		return self.get().ttype == str(token) if self.hasNext() else False
+
+	def __repr__(self):
+		return str(self.tokens[self.pos:])
+	
+	__str__ = __repr__
+
+	def skip(self):
+		self.pos += 1
+
+	def expect(self, token):
+		if not self.accept(token):
+			print(self)
+			raise Exception('{} token not found'.format(str(token)))
+
+		# print(token)
+		t = self.get()
+		self.pos += 1
+
+		return t
+
+class SemanticAnalzer:
+	def __init__(self, parser_tokens, labels, consts):
+		self.stream = ParserStream(parser_tokens)
+		self.labels = labels
+		self.consts = consts
+
+		self.instructions = []
+
+		while self.stream.hasNext():
+			mne = self.stream.expect(MNE)
+			ttype = self.stream.get()
+			self.stream.skip()
+			if self.stream.accept(ID):
+				value = self.stream.expect(ID)
+				self.instructions.append(Instruction(mne.value, ttype.ttype, value.value))
+			elif self.stream.accept(CONST):
+				value = self.stream.expect(CONST)
+				self.instructions.append(Instruction(mne.value, ttype.ttype, value.value))
+			else:
+				self.instructions.append(Instruction(mne.value, ttype.ttype))
+
+		self.instructions = [self.resolve(instruction) for instruction in self.instructions]
+		print([instruction.opcode for instruction in self.instructions])
+		# print(self.instructions)
+
+	def resolve(self, instruction):
+		mne = instruction.mnemonic
+
+		if instruction.mode == str(INDY):
+			instruction.opcode = opcodes[(mne, INDY)]
+		elif instruction.mode == str(INDR):
+			instruction.opcode = opcodes[(mne, INDR)]
+		elif instruction.mode == str(XIND):
+			# TODO CHECK VALUES TO DISTINGUISH BETWEEN ABSOLUTE, RELATIVE, AND ZPG
+			instruction.opcode = opcodes[(mne, ABSX)]
+		elif instruction.mode == str(IMED):
+			instruction.opcode = opcodes[(mne, IMED)]
+		elif instruction.mode == str(X_INDEX):
+			# TODO CHECK VALUES TO DISTINGUISH BETWEEN ABSOLUTE, RELATIVE, AND ZPG
+			instruction.opcode = opcodes[(mne, ABSY)]
+		elif instruction.mode == str(Y_INDEX):
+			instruction.opcode = opcodes[(mne, Y_INDEX)]
+		if instruction.mode == str(UNARY):
+			if (mne, ABSL) in opcodes:
+				instruction.opcode = opcodes[(mne, ABSL)]
+			elif (mne, ZPG) in opcodes:
+				instruction.opcode = opcodes[(mne, ZPG)]
+			else:
+				instruction.opcode = opcodes[(mne, REL)]
+		elif instruction.mode == str(NULL):
+			instruction.opcode = opcodes[(mne, NULL)]
+
+		return instruction
+
 file = open('test.asm')
 source = file.read()
 tokenizer = Tokenizer(source)
-# print(tokenizer.tokens)
 parser = Parser(tokenizer.tokens, None)
+analyzer = SemanticAnalzer(parser.results, parser.labels, parser.consts)
