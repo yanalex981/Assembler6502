@@ -1,5 +1,4 @@
 import re
-# import itertools
 
 class TokenMatcher:
 	def __init__(self, label, regex):
@@ -40,7 +39,7 @@ UNARY = 'Unary'
 X_INDEX = 'X indexed'
 Y_INDEX = 'Y indexed'
 
-NULL = 'No param'
+NULL = 'Nullary'
 IMED = 'Immediate'
 ABSL = 'Absolute'
 REL = 'Relative'
@@ -60,7 +59,7 @@ opcodes = {
 	('bmi', REL) : 0x30, ('and', INDY): 0x31,                                           ('and', ZPGX): 0x35, ('rol', ZPGX): 0x36, ('sec', NULL): 0x38, ('and', ABSY): 0x39,                                           ('and', ABSX): 0x3D, ('rol', ABSX): 0x3E,
 	('rti', NULL): 0x40, ('eor', XIND): 0x41,                                           ('eor', ZPG) : 0x45, ('lsr', ZPG) : 0x46, ('pha', NULL): 0x48, ('eor', IMED): 0x49, ('lsr', NULL): 0x4A, ('jmp', ABSL): 0x4C, ('eor', ABSL): 0x4D, ('lsr', ABSL): 0x4E,
 	('bvc', REL) : 0x50, ('eor', INDY): 0x51,                                           ('eor', ZPGX): 0x55, ('lsr', ZPGX): 0x56, ('cli', NULL): 0x58, ('eor', ABSY): 0x59,                                           ('eor', ABSX): 0x5D, ('lsr', ABSX): 0x5E,
-	('rts', NULL): 0x60, ('adc', XIND): 0x61,                                           ('adc', ZPG) : 0x65, ('ror', ZPG) : 0x66, ('pla', NULL): 0x68, ('adc', IMED): 0x69, ('ror', NULL): 0x6A, ('jmp', ABSL): 0x6C, ('adc', ABSL): 0x6D, ('ror', ABSL): 0x6E,
+	('rts', NULL): 0x60, ('adc', XIND): 0x61,                                           ('adc', ZPG) : 0x65, ('ror', ZPG) : 0x66, ('pla', NULL): 0x68, ('adc', IMED): 0x69, ('ror', NULL): 0x6A, ('jmp', INDR): 0x6C, ('adc', ABSL): 0x6D, ('ror', ABSL): 0x6E,
 	('bvs', REL) : 0x70, ('adc', INDY): 0x71,                                           ('adc', ZPGX): 0x75, ('ror', ZPGX): 0x76, ('sei', NULL): 0x78, ('adc', ABSY): 0x79,                                           ('adc', ABSX): 0x7D, ('ror', ABSX): 0x7E,
 	                     ('sta', XIND): 0x81,                      ('sty', ZPG) : 0x84, ('sta', ZPG) : 0x85, ('stx', ZPG) : 0x86, ('dey', NULL): 0x88,                      ('txa', NULL): 0x8A, ('sty', ABSL): 0x8C, ('sta', ABSL): 0x8D, ('stx', ABSL): 0x8E,
 	('bcc', REL) : 0x90, ('sta', INDY): 0x91,                      ('sty', ZPGX): 0x94, ('sta', ZPGX): 0x95, ('stx', ZPGX): 0x96, ('tya', NULL): 0x98, ('sta', ABSY): 0x99, ('txs', NULL): 0x9A,                      ('sta', ABSX): 0x9D,
@@ -230,7 +229,7 @@ class Parser:
 				elif self.stream.accept(MNE):
 					self.instruction()
 				elif self.stream.accept(ID):
-					self.identifier()
+					self.label()
 				else:
 					print(self.stream)
 					raise Exception('Syntax error')
@@ -256,73 +255,67 @@ class Parser:
 			value = self.stream.expect(CONST).get_match()
 			value = self.parseInt(value)
 
-			return value
-		
-		return self.stream.expect(ID).get_match()
+			self.results.append(value)
+
+			return
+
+		value = self.stream.expect(ID).get_match()
+		self.results.append(value)
 
 	def indirects(self):
 		self.stream.expect(LB)
-		value = self.operand()
+		self.operand()
 
 		if self.stream.accept(RB):
 			self.stream.expect(RB)
 
 			if self.stream.accept(YI):
 				self.stream.expect(YI)
-				return ParserToken(str(INDY)), ParserToken(str(ID) if type(value) is str else str(CONST), value)
+				self.results.append(INDY)
+				return
 
-			return ParserToken(str(INDR)), ParserToken(str(ID) if type(value) is str else str(CONST), value)
+			self.results.append(INDR)
 		else:
 			self.stream.expect(XI)
 			self.stream.expect(RB)
-			
-			return ParserToken(str(XIND)), ParserToken(str(ID) if type(value) is str else str(CONST), value)
+			self.results.append(XIND)
 
 	def immediate(self):
 		ln = self.stream.expect(HASH).get_line_number()
-		value = self.operand()
-
-		return ParserToken(str(IMED)), ParserToken(str(ID) if type(value) is str else str(CONST), value)
+		self.operand()
+		self.results.append(IMED)
 
 	def instruction(self):
-		token = self.stream.expect(MNE)
-		self.results.append(ParserToken(str(MNE), token.get_match(), token.get_line_number()))
+		self.results.append(self.stream.expect(MNE).get_match())
 
 		self.ins_counter += 1
 
 		if self.stream.accept(HASH):
-			vtype, value = self.immediate()
-			self.results.append(vtype)
-			self.results.append(value)
+			self.immediate()
 			return
 		elif self.stream.accept(LB):
-			vtype, value = self.indirects()
-			self.results.append(vtype)
-			self.results.append(value)
+			self.indirects()
 			return
 		elif self.stream.accept(CONST) or self.stream.accept(ID):
-			vtype = str(ID) if self.stream.accept(ID) else str(CONST)
-			value = self.operand()
+			self.operand()
 
 			if self.stream.accept(XI):
 				self.stream.expect(XI)
-				self.results.append(ParserToken(str(X_INDEX)))
-				self.results.append(ParserToken(vtype, value))
+				self.results.append(ABSX)
 				return
 			elif self.stream.accept(YI):
 				self.stream.expect(YI)
-				self.results.append(ParserToken(str(Y_INDEX)))
-				self.results.append(ParserToken(vtype, value))
+				self.results.append(ABSY)
 				return
 			
-			self.results.append(ParserToken(str(UNARY)))
-			self.results.append(ParserToken(str(ID) if type(value) is str else str(CONST), value))
+			self.results.append(UNARY)
 			return
 
-		self.results.append(ParserToken(str(NULL)))
+		self.results.append(None)
+		self.results.append(NULL)
 		return
 
-	def identifier(self):
+	def label(self):
 		name = self.stream.expect(ID).get_match()
 		self.stream.expect(COLON)
 
@@ -375,57 +368,125 @@ class ParserStream:
 
 class SemanticAnalzer:
 	def __init__(self, parser_tokens, labels, consts):
-		self.stream = ParserStream(parser_tokens)
+		self.stream = parser_tokens
 		self.labels = labels
 		self.consts = consts
 
-		self.instructions = []
+		self.tokens = [x for x in parser_tokens[::3]]
+		self.params = [x for x in parser_tokens[1::3]]
+		self.mode = [x for x in parser_tokens[2::3]]
+		self.size = self.apply(self.compute_size)
+		self.addresses = [0]
 
-		while self.stream.hasNext():
-			mne = self.stream.expect(MNE)
-			ttype = self.stream.get()
-			self.stream.skip()
-			if self.stream.accept(ID):
-				value = self.stream.expect(ID)
-				self.instructions.append(Instruction(mne.value, ttype.ttype, value.value))
-			elif self.stream.accept(CONST):
-				value = self.stream.expect(CONST)
-				self.instructions.append(Instruction(mne.value, ttype.ttype, value.value))
-			else:
-				self.instructions.append(Instruction(mne.value, ttype.ttype))
+		for n in self.size:
+			self.addresses.append(n + self.addresses[-1])
 
-		self.instructions = [self.resolve(instruction) for instruction in self.instructions]
-		print([instruction.opcode for instruction in self.instructions])
-		# print(self.instructions)
+		self.labels = {name: self.addresses[n] for (name, n) in zip(self.labels, self.labels.values())}
+		self.mode = self.apply(self.resolve_mode)
+		self.params = self.apply(self.resolve_labels)
+		self.params = [self.resolve_relative(addr, param, mode) for (addr, param, mode) in zip(self.addresses, self.params, self.mode)]
+		self.opcodes = self.apply(self.generate_opcode)
+		self.binary = []
+		[self.generate_instruction(opcode, param, mode) for (opcode, param, mode) in zip(self.opcodes, self.params, self.mode)]
+		print([hex(x) for x in self.binary])
 
-	def resolve(self, instruction):
-		mne = instruction.mnemonic
+		print([hex(x) for x in self.binary if x not in range(0, 256)])
 
-		if instruction.mode == str(INDY):
-			instruction.opcode = opcodes[(mne, INDY)]
-		elif instruction.mode == str(INDR):
-			instruction.opcode = opcodes[(mne, INDR)]
-		elif instruction.mode == str(XIND):
-			# TODO CHECK VALUES TO DISTINGUISH BETWEEN ABSOLUTE, RELATIVE, AND ZPG
-			instruction.opcode = opcodes[(mne, ABSX)]
-		elif instruction.mode == str(IMED):
-			instruction.opcode = opcodes[(mne, IMED)]
-		elif instruction.mode == str(X_INDEX):
-			# TODO CHECK VALUES TO DISTINGUISH BETWEEN ABSOLUTE, RELATIVE, AND ZPG
-			instruction.opcode = opcodes[(mne, ABSY)]
-		elif instruction.mode == str(Y_INDEX):
-			instruction.opcode = opcodes[(mne, Y_INDEX)]
-		if instruction.mode == str(UNARY):
-			if (mne, ABSL) in opcodes:
-				instruction.opcode = opcodes[(mne, ABSL)]
-			elif (mne, ZPG) in opcodes:
-				instruction.opcode = opcodes[(mne, ZPG)]
-			else:
-				instruction.opcode = opcodes[(mne, REL)]
-		elif instruction.mode == str(NULL):
-			instruction.opcode = opcodes[(mne, NULL)]
+		# file = open('out.bin', 'wb')
+		# file.write(bytes(self.binary))
+		# print(self.params)
+		# print(self.addresses)
+		# print(self.labels)
+		# print(self.mode)
+		print([str((addr, mne, param, mode)) for (addr, mne, param, mode) in zip(self.addresses, self.tokens, self.params, self.mode)])
+		# print(self.apply(self.p))
 
-		return instruction
+	def generate_complement(self, n):
+		if n < 0:
+			self.binary.append(0xFF + n + 1)
+		else:
+			self.binary.append(n)
+
+	def generate_word(self, n):
+		low = n % 0x100
+		high = n // 0x100
+
+		self.binary.append(low)
+		self.binary.append(high)
+
+	def generate_instruction(self, opcode, param, mode):
+		self.binary.append(opcode)
+
+		if mode in {ABSL, ABSX, ABSY, INDR}:
+			self.generate_word(param)
+		elif mode == REL:
+			self.generate_complement(param)
+		elif mode != NULL:
+			self.binary.append(param)
+
+	def generate_opcode(self, mne, param, mode):
+		if (mne, mode) not in opcodes:
+			return
+
+		return opcodes[(mne, mode)]
+
+	def apply(self, f):
+		return [f(mne, param, mode) for (mne, param, mode) in zip(self.tokens, self.params, self.mode)]
+
+	def p(self, mne, param, mode):
+		return str((mne, param, mode))
+
+	def resolve_relative(self, addr, param, mode):
+		if mode != REL:
+			return param
+
+		return param - addr - 2
+
+	def resolve_labels(self, mne, param, mode):
+		if type(param) is not str:
+			return param
+
+		if param in self.labels:
+			return self.labels[param]
+
+		return self.consts[param]
+
+	def resolve_mode(self, mne, param, mode):
+		if mode not in {UNARY, ABSX, ABSY}:
+			return mode
+
+		if mode == ABSX:
+			if type(param) is not str and param < 0xFF:
+				return ZPGX
+
+			return ABSX
+
+		if mode == ABSY:
+			if type(param) is not str and param < 0xFF:
+				return ZPGY
+
+			return ABSY
+
+		if mode == UNARY:
+			if (mne, REL) in opcodes:
+				return REL
+
+			if (mne, ZPG) in opcodes:
+				if type(param) is not str and param < 0xFF:
+					return ZPG
+
+				return ABSL
+
+			return ABSL
+
+	def compute_size(self, mne, param, mode):
+		if mode == NULL:
+			return 1
+
+		if type(param) is str or param > 0xFF:
+			return 3
+
+		return 2
 
 file = open('test.asm')
 source = file.read()
