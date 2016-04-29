@@ -1,15 +1,43 @@
+from enum import Enum
 import re
 
-class TokenMatcher:
-	def __init__(self, label, regex):
-		self.label = label
-		self.__regex = re.compile(regex)
-
-	def __call__(self, string, pos=0):
-		return self.__regex.match(string, pos)
+class Tokens(Enum):
+	MNEMONIC      = 0
+	DEFINE        = 1
+	IDENTIFIER    = 2
+	CONSTANT      = 3
+	SPACES        = 4
+	COLON         = 5
+	HASH          = 6
+	LEFT_BRACKET  = 7
+	RIGHT_BRACKET = 8
+	X_INDEX       = 9
+	Y_INDEX       = 10
+	NEWLINE       = 11
+	BAD_TOKEN     = 12
 
 	def __str__(self):
-		return self.label
+		return self.name
+
+	__repr__ = __str__
+
+class TokenMatcher:
+	def __init__(self, type_, matcher, trivial=True):
+		self.__type = type_
+		self.__matcher = matcher
+		self.__trivial = trivial
+
+	def is_trivial(self):
+		return self.__trivial
+
+	def match(self, string, pos=0):
+		return self.__matcher.match(string, pos)
+
+	def get_type(self):
+		return self.__type
+
+	def __str__(self):
+		return str(self.get_type())
 
 	__repr__ = __str__
 
@@ -17,32 +45,33 @@ mnemonic = {'ldx', 'lsr', 'rti', 'sta', 'bcs', 'brk', 'sed', 'sec', 'beq', 'cpy'
 instRegex = ''
 for m in mnemonic:
 	instRegex += '{}|'.format(m)
-instRegex += instRegex.upper()
 instRegex = '\\b({})\\b'.format(instRegex[:-1])
 
-MNE    = TokenMatcher('Mnemonic'     , instRegex)
-DEFINE = TokenMatcher('Define'       , r'\bdefine\b')
-ID     = TokenMatcher('Identifier'   , r'[_a-zA-Z][_a-zA-Z0-9]*')
-CONST  = TokenMatcher('Constant'     , r'(\d+|\$[0-9a-fA-F]+)\b')
-SPACE  = TokenMatcher('Space'        , r'[ \t]+')
-COLON  = TokenMatcher('Colon'        , r':')
-HASH   = TokenMatcher('Hash'         , r'#')
-LB     = TokenMatcher('Left bracket' , r'\(')
-RB     = TokenMatcher('Right bracket', r'\)')
-XI     = TokenMatcher('X index'      , r',\s*[Xx]\b')
-YI     = TokenMatcher('Y index'      , r',\s*[Yy]\b')
-EOL    = TokenMatcher('Newline'      , r'\r\n|\r|\n')
+MNE   = TokenMatcher(Tokens.MNEMONIC     , re.compile(instRegex, flags=re.IGNORECASE), trivial=False)
+DEF   = TokenMatcher(Tokens.DEFINE       , re.compile(r'\bdefine\b'))
+ID    = TokenMatcher(Tokens.IDENTIFIER   , re.compile(r'[_a-zA-Z][_a-zA-Z0-9]*'), trivial=False)
+CONST = TokenMatcher(Tokens.CONSTANT     , re.compile(r'(\d+|\$[0-9a-fA-F]+)\b'), trivial=False)
+SPACE = TokenMatcher(Tokens.SPACES       , re.compile(r'[ \t]+'))
+COLON = TokenMatcher(Tokens.COLON        , re.compile(r':'))
+HASH  = TokenMatcher(Tokens.HASH         , re.compile(r'#'))
+LB    = TokenMatcher(Tokens.LEFT_BRACKET , re.compile(r'\('))
+RB    = TokenMatcher(Tokens.RIGHT_BRACKET, re.compile(r'\)'))
+XI    = TokenMatcher(Tokens.X_INDEX      , re.compile(r',\s*[Xx]\b'))
+YI    = TokenMatcher(Tokens.Y_INDEX      , re.compile(r',\s*[Yy]\b'))
+EOL   = TokenMatcher(Tokens.NEWLINE      , re.compile(r'\r\n|\r|\n'))
+ERR   = TokenMatcher(Tokens.BAD_TOKEN    , re.compile(r'.'))
 
-priorities = [EOL, MNE, DEFINE, ID, SPACE, HASH, CONST, XI, YI, COLON, LB, RB]
+priorities = [EOL, MNE, DEF, ID, SPACE, HASH, CONST, XI, YI, COLON, LB, RB, ERR]
 
-UNARY = 'Unary'
+UNARY   = 'Unary'
 X_INDEX = 'X indexed'
 Y_INDEX = 'Y indexed'
+INDEX = 'INDEX'
 
 NULL = 'Nullary'
 IMED = 'Immediate'
 ABSL = 'Absolute'
-REL = 'Relative'
+REL  = 'Relative'
 INDR = 'Indirect'
 ZPG  = 'Zero Page'
 ZPGX = 'Zero Page X'
@@ -71,38 +100,23 @@ opcodes = {
 	('beq', REL) : 0xF0, ('sbc', INDY): 0xF1,                                           ('sbc', ZPGX): 0xF5, ('inc', ZPGX): 0xF6, ('sed', NULL): 0xF8, ('sbc', ABSY): 0xF9,                                           ('sbc', ABSX): 0xFD, ('inc', ABSX): 0xFE
 }
 
-class Line:
-	def __init__(self, pos, line):
-		self.pos = pos
-		self.line = re.sub(r'\s+$', '', line)
-
-	def __str__(self):
-		return self.line
-
-	def __repr__(self):
-		return "{}:'{}'".format(self.pos, self.line)
-
 class Token:
-	def __init__(self, type_, line_number, start, match):
+	def __init__(self, type_, value=None, origin=None):
 		self.__type = type_
-		self.__line_number = line_number
-		self.__start = start
-		self.__match = match
+		self.__value = value
+		self.__origin = origin
 
 	def get_type(self):
 		return self.__type
 
-	def get_line_number(self):
-		return self.__line_number
-
-	def get_start(self):
-		return self.__start
-
-	def get_match(self):
-		return self.__match
+	def get_value(self):
+		return self.__value
 
 	def __repr__(self):
-		return "{} at {}:{}:'{}'".format(self.__type, self.__line_number, self.__start, re.sub(r'(\r\n|\n|\r)+', '', self.__match))
+		location = ' at {}'.format(self.__origin) if self.__origin is not None else ''
+		value = ":'{}'".format(self.__value) if self.__value is not None else ''
+
+		return '{}{}{}'.format(self.__type, location, value)
 
 	__str__ = __repr__
 
@@ -112,9 +126,9 @@ class CharStream:
 		self.__pos = 0
 
 	def accept(self, matcher):
-		return matcher(self.__source, self.__pos)
+		return matcher.match(self.__source, self.__pos)
 
-	def consume(self, match):
+	def __consume(self, match):
 		self.__pos = match.end()
 
 	def expect(self, matcher):
@@ -123,10 +137,10 @@ class CharStream:
 		if not match:
 			raise Error('Error matching {}'.format(matcher))
 
-		self.consume(match)
+		self.__consume(match)
 		return match
 
-	def hasNext(self):
+	def has_next(self):
 		return self.__pos < len(self.__source)
 
 	def __str__(self):
@@ -136,34 +150,31 @@ class CharStream:
 
 class Tokenizer:
 	def __init__(self, source):
-		s = re.sub(r';.+', '', source)
+		s = re.sub(r';.*', '', source)
 		s = s.splitlines(True)
 
-		self.tokens = [self.tokenize(line_number + 1, line) for (line_number, line) in zip(range(len(s)), s)]
-		self.tokens = [[token for token in line if token.get_type() != str(SPACE) and token.get_type() != str(EOL)] for line in self.tokens]
+		self.tokens = [self.tokenize(line_number, line) for (line_number, line) in zip(range(len(s) + 1), s)]
+		self.tokens = [[token for token in line if token.get_type() not in {Tokens.SPACES, Tokens.NEWLINE}] for line in self.tokens]
 		self.tokens = [line for line in self.tokens if len(line) > 0]
 
 	def tokenize(self, line_number, line):
 		stream = CharStream(line)
 		tokens = []
 
-		while stream.hasNext():
-			valid = False
-
+		while stream.has_next():
 			for matcher in priorities:
 				match = stream.accept(matcher)
+
+				if matcher is ERR:
+					raise Exception('Unknown:{}'.format(stream))
+					break
 
 				if not match:
 					continue
 
 				stream.expect(matcher)
-				t = Token(str(matcher), line_number, match.start(), match.group())
+				t = Token(matcher.get_type(), None if matcher.is_trivial() else match.group())
 				tokens.append(t)
-				valid = True
-				break
-
-			if not valid:
-				raise Exception('Unknown:{}'.format(stream))
 				break
 
 		return tokens
@@ -173,14 +184,14 @@ class TokenStream:
 		self.tokens = tokens
 		self.pos = 0
 
-	def hasNext(self):
+	def has_next(self):
 		return self.pos < len(self.tokens)
 
 	def get(self):
 		return self.tokens[self.pos]
 
 	def accept(self, token):
-		return self.get().get_type() == str(token) if self.hasNext() else False
+		return self.get().get_type() is token if self.has_next() else False
 
 	def __repr__(self):
 		return str(self.tokens[self.pos:])
@@ -188,33 +199,24 @@ class TokenStream:
 	__str__ = __repr__
 
 	def skip(self):
-		self.pos += 1
-
-	def expect(self, token):
-		if not self.accept(token):
-			print(self)
-			raise Exception('{} token not found'.format(str(token)))
-
-		# print(token)
 		t = self.get()
 		self.pos += 1
 
 		return t
 
-class ParserToken:
-	def __init__(self, ttype, value=None, line_number=None):
-		self.ttype = ttype
-		self.value = value
-		self.line_number = line_number
+	def expect(self, token):
+		# print(token)
+		if not self.accept(token):
+			print(self)
+			raise Exception('{} token not found'.format(str(token)))
 
-	def __repr__(self):
-		return "{}{}:'{}'".format(self.ttype, ' at {}'.format(self.line_number) if self.line_number else '', self.value if self.value else '')
+		t = self.get()
+		self.pos += 1
 
-	__str__ = __repr__
+		return t
 
 class Parser:
 	def __init__(self, tokens, consts):
-		self.consts = {}
 		self.labels = {}
 		self.addresses = {}
 		self.ins_counter = 0
@@ -223,12 +225,13 @@ class Parser:
 
 		for line in self.tokens:
 			self.stream = TokenStream(line)
-			while self.stream.hasNext():
-				if self.stream.accept(DEFINE):
+
+			while self.stream.has_next():
+				if self.stream.accept(Tokens.DEFINE):
 					self.define()
-				elif self.stream.accept(MNE):
+				elif self.stream.accept(Tokens.MNEMONIC):
 					self.instruction()
-				elif self.stream.accept(ID):
+				elif self.stream.accept(Tokens.IDENTIFIER):
 					self.label()
 				else:
 					print(self.stream)
@@ -236,91 +239,87 @@ class Parser:
 
 		# print(self.results)
 
-	def parseInt(self, s):
-		b10 = re.match(r'(\d+)', s)
-		b16 = re.match(r'\$([0-9a-fA-F]+)', s)
-		v = int(b16.group(1), 16) if b16 else int(b10.group(1))
-
-		return v
+	def emit(self, token):
+		self.results.append(token)
 
 	def define(self):
-		self.stream.expect(DEFINE)
-		name = self.stream.expect(ID).get_match()
-		value = self.stream.expect(CONST).get_match()
-
-		self.consts[name] = self.parseInt(value)
+		self.stream.expect(Tokens.DEFINE)
+		name = self.stream.expect(Tokens.IDENTIFIER).get_value()
+		value = self.stream.expect(Tokens.CONSTANT).get_value()
+		self.emit(Token(Tokens.DEFINE, (name, value)))
 
 	def operand(self):
-		if self.stream.accept(CONST):
-			value = self.stream.expect(CONST).get_match()
-			value = self.parseInt(value)
-
-			self.results.append(value)
-
-			return
-
-		value = self.stream.expect(ID).get_match()
-		self.results.append(value)
+		return self.stream.expect(Tokens.CONSTANT) if self.stream.accept(Tokens.CONSTANT) else self.stream.expect(Tokens.IDENTIFIER)
 
 	def indirects(self):
-		self.stream.expect(LB)
-		self.operand()
+		self.stream.expect(Tokens.LEFT_BRACKET)
+		param = self.operand()
 
-		if self.stream.accept(RB):
-			self.stream.expect(RB)
+		if self.stream.accept(Tokens.RIGHT_BRACKET):
+			self.stream.expect(Tokens.RIGHT_BRACKET)
 
-			if self.stream.accept(YI):
-				self.stream.expect(YI)
-				self.results.append(INDY)
-				return
-
-			self.results.append(INDR)
+			if self.stream.accept(Tokens.Y_INDEX):
+				self.stream.expect(Tokens.Y_INDEX)
+				self.emit(Token(INDY))
+			else:
+				self.emit(Token(INDR))
 		else:
-			self.stream.expect(XI)
-			self.stream.expect(RB)
-			self.results.append(XIND)
+			self.stream.expect(Tokens.X_INDEX)
+			self.stream.expect(Tokens.RIGHT_BRACKET)
+			self.emit(Token(XIND))
+
+		self.emit(param)
 
 	def immediate(self):
-		ln = self.stream.expect(HASH).get_line_number()
-		self.operand()
-		self.results.append(IMED)
+		self.stream.expect(Tokens.HASH)
+		param = self.operand()
+		self.emit(Token(IMED))
+		self.emit(param)
 
 	def instruction(self):
-		self.results.append(self.stream.expect(MNE).get_match())
+		self.emit(self.stream.expect(Tokens.MNEMONIC))
 
 		self.ins_counter += 1
 
-		if self.stream.accept(HASH):
+		if self.stream.accept(Tokens.HASH):
 			self.immediate()
 			return
-		elif self.stream.accept(LB):
+		elif self.stream.accept(Tokens.LEFT_BRACKET):
 			self.indirects()
 			return
-		elif self.stream.accept(CONST) or self.stream.accept(ID):
-			self.operand()
+		elif self.stream.accept(Tokens.CONSTANT) or self.stream.accept(Tokens.IDENTIFIER):
+			operand = self.operand()
 
-			if self.stream.accept(XI):
-				self.stream.expect(XI)
-				self.results.append(ABSX)
+			if self.stream.accept(Tokens.X_INDEX):
+				self.stream.expect(Tokens.X_INDEX)
+				self.emit(Token(ABSX))
+				self.emit(operand)
 				return
-			elif self.stream.accept(YI):
-				self.stream.expect(YI)
-				self.results.append(ABSY)
+			elif self.stream.accept(Tokens.Y_INDEX):
+				self.stream.expect(Tokens.Y_INDEX)
+				self.emit(Token(ABSY))
+				self.emit(operand)
 				return
 			
-			self.results.append(UNARY)
+			self.emit(Token(UNARY))
+			self.emit(operand)
 			return
 
-		self.results.append(None)
-		self.results.append(NULL)
+		self.emit(Token(NULL))
 		return
 
 	def label(self):
-		name = self.stream.expect(ID).get_match()
-		self.stream.expect(COLON)
+		name = self.stream.expect(Tokens.IDENTIFIER).get_value()
+		self.stream.expect(Tokens.COLON)
 
 		self.labels[name] = self.ins_counter
 
+# need polish
+# change member names
+# add addr member
+# remove opcode member
+# make private
+# add accessors and modifiers
 class Instruction:
 	def __init__(self, mnemonic, mode, value=None, line_number=None):
 		self.mnemonic = mnemonic
@@ -331,81 +330,198 @@ class Instruction:
 		self.size = 0
 
 	def __repr__(self):
+		if self.mode is NULL:
+			return str(self.mnemonic)
+
+		# return str((str(self.mnemonic), str(self.mode), str(self.value), self.addr))
 		return str((str(self.mnemonic), str(self.mode), str(self.value)))
 
-class ParserStream:
-	def __init__(self, tokens):
-		self.tokens = tokens
-		self.pos = 0
-
-	def hasNext(self):
-		return self.pos < len(self.tokens)
-
-	def get(self):
-		return self.tokens[self.pos]
-
-	def accept(self, token):
-		return self.get().ttype == str(token) if self.hasNext() else False
-
-	def __repr__(self):
-		return str(self.tokens[self.pos:])
-	
-	__str__ = __repr__
-
-	def skip(self):
-		self.pos += 1
-
-	def expect(self, token):
-		if not self.accept(token):
-			print(self)
-			raise Exception('{} token not found'.format(str(token)))
-
-		# print(token)
-		t = self.get()
-		self.pos += 1
-
-		return t
-
-class SemanticAnalzer:
-	def __init__(self, parser_tokens, labels, consts):
-		self.stream = parser_tokens
+class SemanticAnalyzer:
+	def __init__(self, parser_tokens, labels):
+		self.tokens = parser_tokens
 		self.labels = labels
-		self.consts = consts
+		self.consts = {}
 
-		self.tokens = [x for x in parser_tokens[::3]]
-		self.params = [x for x in parser_tokens[1::3]]
-		self.mode = [x for x in parser_tokens[2::3]]
-		self.size = self.apply(self.compute_size)
-		self.addresses = [0]
-
-		for n in self.size:
-			self.addresses.append(n + self.addresses[-1])
-
-		self.labels = {name: self.addresses[n] for (name, n) in zip(self.labels, self.labels.values())}
-		self.mode = self.apply(self.resolve_mode)
-		self.params = self.apply(self.resolve_labels)
-		self.params = [self.resolve_relative(addr, param, mode) for (addr, param, mode) in zip(self.addresses, self.params, self.mode)]
-		self.opcodes = self.apply(self.generate_opcode)
-		self.binary = []
-		[self.generate_instruction(opcode, param, mode) for (opcode, param, mode) in zip(self.opcodes, self.params, self.mode)]
-		print([hex(x) for x in self.binary])
-
-		print([hex(x) for x in self.binary if x not in range(0, 256)])
-
-		# file = open('out.bin', 'wb')
-		# file.write(bytes(self.binary))
-		# print(self.params)
-		# print(self.addresses)
+		self.check_ids()
+		self.substitute_ids()
+		self.deduce()
+		self.compute_size_and_addr()
+		# print(self.consts)
 		# print(self.labels)
-		# print(self.mode)
-		print([str((addr, mne, param, mode)) for (addr, mne, param, mode) in zip(self.addresses, self.tokens, self.params, self.mode)])
-		# print(self.apply(self.p))
+		self.compute_params()
+		self.binary = []
+		self.generate_code()
+		# print(self.results)
+		# [print(hex(x)) for x in self.binary]
+		self.binary = bytes(self.binary)
+		out = open('out.bin', 'wb')
+		out.write(self.binary)
 
-	def generate_complement(self, n):
-		if n < 0:
-			self.binary.append(0xFF + n + 1)
-		else:
-			self.binary.append(n)
+	def check_ids(self):
+		stream = TokenStream(self.tokens)
+
+		while stream.has_next():
+			# check for redefinition
+			if stream.accept(Tokens.DEFINE):
+				token = stream.expect(Tokens.DEFINE)
+				name, value = token.get_value()
+				self.check_redefinition(name, value)
+				self.consts[name] = self.parse_int(value)
+			elif stream.accept(Tokens.IDENTIFIER):
+				name = stream.expect(Tokens.IDENTIFIER).get_value()
+				self.check_undecl_ids(name)
+			else:
+				stream.skip()
+
+	def substitute_ids(self):
+		stream = TokenStream(self.tokens)
+
+		tokens = []
+
+		while stream.has_next():
+			if stream.accept(Tokens.DEFINE):
+				stream.skip()
+			elif stream.accept(Tokens.IDENTIFIER):
+				token = stream.expect(Tokens.IDENTIFIER)
+				t = token.get_type()
+				name = token.get_value()
+
+				# polish this block
+				type_ = INDEX if name in self.labels else Tokens.CONSTANT
+				value = self.labels[name] if name in self.labels else self.consts[name]
+
+				tokens.append(Token(type_, value))
+			# remove this hack. Parse values when appropriate
+			elif stream.accept(Tokens.CONSTANT):
+				token = stream.expect(Tokens.CONSTANT)
+				tokens.append(Token(Tokens.CONSTANT, self.parse_int(token.get_value())))
+			else:
+				tokens.append(stream.skip())
+
+		self.results = tokens
+
+	def deduce(self):
+		stream = TokenStream(self.results)
+		tokens = []
+
+		while stream.has_next():
+			mne = stream.expect(Tokens.MNEMONIC).get_value().lower()
+			mode = stream.skip().get_type()
+			# look into fixing inconsistency due to the lack of get_type() here
+			param = stream.skip() if mode is not NULL else None
+
+			# print(mne, self.deduce_mode(mne, mode, param), param)
+			tokens.append(Instruction(mne, self.deduce_mode(mne, mode, param), param))
+
+		self.results = tokens
+
+	def deduce_mode(self, mne, mode, param):
+		# print(mne, mode, param)
+		if mode not in {UNARY, ABSX, ABSY}:
+			return mode
+
+		# hack due to inconsistency from previous stage
+		param = param.get_value()
+
+		if (mne, REL) in opcodes:
+			# print(mne, REL, type(param), param)
+			return REL
+
+		if mode is UNARY:
+			if (mne, ZPG) in opcodes and param <= 0xFF:
+				return ZPG
+			else:
+				return ABSL
+
+		if mode is ABSX:
+			if (mne, ZPGX) in opcodes and param <= 0xFF:
+				return ZPGX
+			else:
+				return ABSX
+
+		if mode is ABSY:
+			if (mne, ZPGY) in opcodes and param <= 0xFF:
+				return ZPGY
+			else:
+				return ABSY
+
+	def parse_int(self, s):
+		return int(s[1:], 16) if s[0] == '$' else int(s)
+
+	def check_redefinition(self, name, value):
+		if name in self.consts:
+			raise Exception("{} has already been defined as {}".format(name, self.consts[name]))
+
+		if name in self.labels:
+			raise Exception("{} is a label".format(name))
+
+	def check_undecl_ids(self, var_name):
+		if var_name not in self.consts and var_name not in self.labels:
+			raise Exception("Use of undeclared variable '{}'".format(var_name))
+
+	def compute_size_and_addr(self):
+		addr = 0x600
+
+		for instruction in self.results:
+			mode = instruction.mode
+			instruction.addr = addr
+
+			if mode is NULL:
+				instruction.size = 1
+			elif mode in {ABSL, ABSX, ABSY, INDR}:
+				instruction.size = 3
+			else:
+				instruction.size = 2
+
+			addr += instruction.size
+
+		self.end = addr
+
+	def compute_params(self):
+		for instruction in self.results:
+			# Fix this big hack
+			if instruction.value is not None and type(instruction.value) is not int and instruction.value.get_type() is Tokens.CONSTANT:
+				instruction.value = instruction.value.get_value()
+				continue
+
+			if instruction.mode in {IMED, NULL}:
+				continue
+
+			if instruction.value.get_type() is not INDEX:
+				continue
+
+			if instruction.mode is REL:
+				dest = self.results[instruction.value.get_value()].addr
+				diff = dest - (instruction.addr + instruction.size)
+
+				instruction.value = diff
+				if diff not in range(-128, 128):
+					raise Exception('Attempting to jump too far')
+			else:
+				# print(instruction.value.get_value(), instruction, len(self.results))
+
+				index = instruction.value.get_value()
+				instruction.value = self.results[index].addr if index < len(self.results) else self.end
+				# print(type(instruction.value))
+
+	def generate_code(self):
+		for instruction in self.results:
+			self.generate_instruction(instruction)
+
+	def generate_instruction(self, instruction):
+		key = (instruction.mnemonic, instruction.mode)
+		opcode = opcodes[key]
+		mode = instruction.mode
+		param = instruction.value
+
+		self.binary.append(opcode)
+
+		if mode in {ABSL, ABSX, ABSY, INDR}:
+			self.generate_word(param)
+		elif mode is REL:
+			self.generate_complement(param)
+		elif mode != NULL:
+			self.binary.append(param)
 
 	def generate_word(self, n):
 		low = n % 0x100
@@ -414,82 +530,16 @@ class SemanticAnalzer:
 		self.binary.append(low)
 		self.binary.append(high)
 
-	def generate_instruction(self, opcode, param, mode):
-		self.binary.append(opcode)
+	def generate_complement(self, n):
+		if n < 0:
+			self.binary.append(0xFF + n + 1)
+		else:
+			self.binary.append(n)
 
-		if mode in {ABSL, ABSX, ABSY, INDR}:
-			self.generate_word(param)
-		elif mode == REL:
-			self.generate_complement(param)
-		elif mode != NULL:
-			self.binary.append(param)
-
-	def generate_opcode(self, mne, param, mode):
-		if (mne, mode) not in opcodes:
-			return
-
-		return opcodes[(mne, mode)]
-
-	def apply(self, f):
-		return [f(mne, param, mode) for (mne, param, mode) in zip(self.tokens, self.params, self.mode)]
-
-	def p(self, mne, param, mode):
-		return str((mne, param, mode))
-
-	def resolve_relative(self, addr, param, mode):
-		if mode != REL:
-			return param
-
-		return param - addr - 2
-
-	def resolve_labels(self, mne, param, mode):
-		if type(param) is not str:
-			return param
-
-		if param in self.labels:
-			return self.labels[param]
-
-		return self.consts[param]
-
-	def resolve_mode(self, mne, param, mode):
-		if mode not in {UNARY, ABSX, ABSY}:
-			return mode
-
-		if mode == ABSX:
-			if type(param) is not str and param < 0xFF:
-				return ZPGX
-
-			return ABSX
-
-		if mode == ABSY:
-			if type(param) is not str and param < 0xFF:
-				return ZPGY
-
-			return ABSY
-
-		if mode == UNARY:
-			if (mne, REL) in opcodes:
-				return REL
-
-			if (mne, ZPG) in opcodes:
-				if type(param) is not str and param < 0xFF:
-					return ZPG
-
-				return ABSL
-
-			return ABSL
-
-	def compute_size(self, mne, param, mode):
-		if mode == NULL:
-			return 1
-
-		if type(param) is str or param > 0xFF:
-			return 3
-
-		return 2
-
-file = open('test.asm')
+file = open('test5.asm')
 source = file.read()
 tokenizer = Tokenizer(source)
+# print(tokenizer.tokens)
 parser = Parser(tokenizer.tokens, None)
-analyzer = SemanticAnalzer(parser.results, parser.labels, parser.consts)
+# print(parser.results)
+analyzer = SemanticAnalyzer(parser.results, parser.labels)

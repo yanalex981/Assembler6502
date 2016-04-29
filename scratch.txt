@@ -11,6 +11,33 @@ XI		,\s*[Xx]
 YI		,\s*[Yy]
 EOL		\n|\r\n|\r
 
+compiler works in stages:
+each stage takes in a list of tokens with elements from set x
+outputs a list of tokens with elements from set y
+
+characters
+lexemes
+check syntax
+	add label to table with mne counter
+	emit id value
+	emit mne mode param?
+check semantics
+	id existence check
+		check if const is used before decl
+		defines
+		labels
+	check multiple defs
+		make set
+		run through list
+		if define, add to set
+		if id, check if id already in set; error otherwise
+	check mode and param range
+	check range of relative instructions. May jump > 128 bytes
+instructions
+code generation
+	select correct opcodes
+	emit little endian
+
 file
 	line EOF
 
