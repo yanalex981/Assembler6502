@@ -39,7 +39,7 @@ def tokenize(src):
 		make_matcher(r'.+'                    , Tokens.BAD_TOKEN)
 	)
 
-	ignore = {Tokens.COMMENT, Tokens.SPACES, Tokens.NEWLINE}
+	ignore = {Tokens.COMMENT, Tokens.SPACES}
 
 	pos, line = 0, 1
 

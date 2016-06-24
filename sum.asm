@@ -12,3 +12,4 @@ loop:
 	jmp loop
 end:
 	brk
+	brk
