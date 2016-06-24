@@ -460,7 +460,7 @@ class SemanticAnalyzer:
 			raise Exception("Use of undeclared variable '{}'".format(var_name))
 
 	def compute_size_and_addr(self):
-		addr = 0x600
+		addr = 0x0
 
 		for instruction in self.results:
 			mode = instruction.mode
@@ -536,7 +536,7 @@ class SemanticAnalyzer:
 		else:
 			self.binary.append(n)
 
-file = open('test5.asm')
+file = open('sum.asm')
 source = file.read()
 tokenizer = Tokenizer(source)
 # print(tokenizer.tokens)
