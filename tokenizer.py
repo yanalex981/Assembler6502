@@ -17,8 +17,7 @@ def make_matcher(pattern, token):
 
 	return match
 
-# TODO make inner loop a generator?
-def tokenize(src):
+def make_tokenizer(src):
 	mnemonic = {'ldx', 'lsr', 'rti', 'sta', 'bcs', 'brk', 'sed', 'sec', 'beq', 'cpy', 'pla', 'and', 'tax', 'sty', 'dey', 'inx', 'rts', 'sei', 'bne', 'bvc', 'eor', 'asl', 'cmp', 'txs', 'txa', 'jmp', 'ror', 'nop', 'stx', 'inc', 'iny', 'bvs', 'adc', 'cld', 'pha', 'tya', 'ora', 'plp', 'jsr', 'bit', 'lda', 'bmi', 'tsx', 'rol', 'cpx', 'php', 'dex', 'bpl', 'clv', 'clc', 'dec', 'bcc', 'ldy', 'tay', 'sbc', 'cli'}
 	instruction_pattern = '\\b({})\\b'.format('|'.join(mnemonic))
 
@@ -66,5 +65,5 @@ if __name__ == '__main__':
 	file = open('test.asm')
 	source = file.read()
 
-	tokenizer = tokenize(source)
+	tokenizer = make_tokenizer(source)
 	print([x for x in tokenizer])

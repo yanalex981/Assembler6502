@@ -1,32 +1,13 @@
 from enum import Enum
+from peeker import Peeker
 from tokenizer import Tokens as lexer
-from tokenizer import tokenize
+from tokenizer import make_tokenizer
 
 class Tokens(Enum):
 	DEFINE, IDENTIFIER, CONSTANT, IMMEDIATE, NO_PARAM, ONE_PARAM, X_INDEX, Y_INDEX, LABEL, X_INDIRECT, INDIRECT_Y = range(11)
 
 	def __repr__(self):
 		return self.name
-
-class Peeker:
-	def __init__(self, stream):
-		self.__current = None
-		self.__stream = stream
-
-	def peek(self):
-		if self.__current is None:
-			self.__current = next(self.__stream)
-
-		return self.__current
-
-	def __next__(self):
-		current = self.peek()
-		self.__current = None
-
-		return current
-
-	def __iter__(self):
-		return self
 
 def make_syntax_analyzer(peekable):
 	def accept(token_type):
@@ -82,15 +63,16 @@ def make_syntax_analyzer(peekable):
 			return (Tokens.X_INDIRECT, mne, *param)
 
 		def direct(mne):
+			# TODO maybe split up param so that it's unpacked in the if statements?
 			def x_index(param):
 				expect(lexer.X_INDEX)
 
-				return (Tokens.X_INDEX, mne, param)
+				return (Tokens.X_INDEX, mne, *param)
 
 			def y_index(param):
 				expect(lexer.Y_INDEX)
 
-				return (Tokens.Y_INDEX, mne, param)
+				return (Tokens.Y_INDEX, mne, *param)
 
 			param = operand()
 
@@ -135,7 +117,6 @@ def make_syntax_analyzer(peekable):
 if __name__ == '__main__':
 	with open('test.asm') as file:
 		source = file.read()
-		tokenizer = tokenize(source)
-		syntax_analyzer = make_syntax_analyzer(Peeker(tokenizer))
+		syntax_analyzer = make_syntax_analyzer(Peeker(make_tokenizer(source)))
 
 		print([x for x in syntax_analyzer])
