@@ -19,8 +19,9 @@ def make_syntax_analyzer(peekable):
 			return False
 
 	def expect(token_type):
-		if not accept(token_type):
-			raise Exception('Unexpected token encountered')
+		ttype = accept(token_type)
+		if not ttype:
+			raise Exception('Expected {}, but encountered {}'.format(token_type, ttype))
 
 		return next(peekable)
 
