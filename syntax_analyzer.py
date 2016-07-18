@@ -1,6 +1,5 @@
 from tokens import Tokens
 from peeker import Peeker
-from tokenizer import Tokens as lexer
 from tokenizer import make_tokenizer
 
 def make_syntax_analyzer(peekable):
@@ -20,92 +19,92 @@ def make_syntax_analyzer(peekable):
 		return next(peekable)
 
 	def define():
-		expect(lexer.DEFINE)
-		_, name = expect(lexer.IDENTIFIER)
-		_, value = expect(lexer.CONSTANT)
+		expect(Tokens.DEFINE)
+		_, name = expect(Tokens.IDENTIFIER)
+		_, value = expect(Tokens.CONSTANT)
 
 		return (Tokens.DEFINE, name, value)
 
 	def instruction():
 		def operand():
-			return (Tokens.CONSTANT, *expect(lexer.CONSTANT)[1:]) if accept(lexer.CONSTANT) else (Tokens.IDENTIFIER, *expect(lexer.IDENTIFIER)[1:])
+			return (Tokens.CONSTANT, *expect(Tokens.CONSTANT)[1:]) if accept(Tokens.CONSTANT) else (Tokens.IDENTIFIER, *expect(Tokens.IDENTIFIER)[1:])
 
 		def immediate(mne):
-			expect(lexer.HASH)
+			expect(Tokens.HASH)
 
 			return (Tokens.IMMEDIATE, mne, *operand())
 
 		def indirects(mne):
 			def indirect_y():
-				expect(lexer.Y_INDEX)
+				expect(Tokens.Y_INDEX)
 
 				return (Tokens.INDIRECT_Y, mne, *param)
 
-			expect(lexer.LEFT_BRACKET)
+			expect(Tokens.LEFT_BRACKET)
 			param = operand()
 
-			if accept(lexer.RIGHT_BRACKET):
-				expect(lexer.RIGHT_BRACKET)
+			if accept(Tokens.RIGHT_BRACKET):
+				expect(Tokens.RIGHT_BRACKET)
 
-				if accept(lexer.Y_INDEX):
+				if accept(Tokens.Y_INDEX):
 					return indirect_y()
 
 				return (Tokens.INDIRECT, mne, *param)
 
-			expect(lexer.X_INDEX)
-			expect(lexer.RIGHT_BRACKET)
+			expect(Tokens.X_INDEX)
+			expect(Tokens.RIGHT_BRACKET)
 
 			return (Tokens.X_INDIRECT, mne, *param)
 
 		def direct(mne):
 			# TODO maybe split up param so that it's unpacked in the if statements?
 			def x_index(param):
-				expect(lexer.X_INDEX)
+				expect(Tokens.X_INDEX)
 
 				return (Tokens.X_INDEX, mne, *param)
 
 			def y_index(param):
-				expect(lexer.Y_INDEX)
+				expect(Tokens.Y_INDEX)
 
 				return (Tokens.Y_INDEX, mne, *param)
 
 			param = operand()
 
-			if accept(lexer.X_INDEX):
+			if accept(Tokens.X_INDEX):
 				return x_index(param)
-			elif accept(lexer.Y_INDEX):
+			elif accept(Tokens.Y_INDEX):
 				return y_index(param)
 
 			return (Tokens.ONE_PARAM, mne, *param)
 
-		_, mne = expect(lexer.MNEMONIC)
+		_, mne = expect(Tokens.MNEMONIC)
 
-		if accept(lexer.HASH):
+		if accept(Tokens.HASH):
 			return immediate(mne)
-		elif accept(lexer.LEFT_BRACKET):
+		elif accept(Tokens.LEFT_BRACKET):
 			return indirects(mne)
-		elif accept(lexer.CONSTANT) or accept(lexer.IDENTIFIER):
+		elif accept(Tokens.CONSTANT) or accept(Tokens.IDENTIFIER):
 			return direct(mne)
 
 		return (Tokens.NO_PARAM, mne)
 
 	def label():
-		_, name = expect(lexer.IDENTIFIER)
-		expect(lexer.COLON)
+		_, name = expect(Tokens.IDENTIFIER)
+		expect(Tokens.COLON)
 
 		return (Tokens.LABEL, name)
 
 	while True:
 		token_type, value = peekable.peek()
 
-		if token_type is lexer.DEFINE:
+		if token_type is Tokens.DEFINE:
 			yield define()
-		elif token_type is lexer.MNEMONIC:
+		elif token_type is Tokens.MNEMONIC:
 			yield instruction()
-		elif token_type is lexer.IDENTIFIER:
+		elif token_type is Tokens.IDENTIFIER:
 			yield label()
-		elif token_type is lexer.NEWLINE:
-			expect(lexer.NEWLINE)
+		elif token_type is Tokens.NEWLINE:
+			expect(Tokens.NEWLINE)
 		else:
 			raise Exception('Syntax error')
 

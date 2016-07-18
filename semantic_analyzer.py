@@ -1,5 +1,5 @@
+from tokens import Tokens
 from syntax_analyzer import make_syntax_analyzer
-from tokens import Tokens as syn
 from peeker import Peeker
 from tokenizer import make_tokenizer
 
@@ -40,10 +40,10 @@ def analyze_semantics(syntax_analyzer):
 		for token in syntax_analyzer:
 			token_type, *_ = token
 
-			if token_type is syn.DEFINE:
+			if token_type is Tokens.DEFINE:
 				_, var_name, value = token
 				add_define(ids, labels, var_name, value)
-			elif token_type is syn.LABEL:
+			elif token_type is Tokens.LABEL:
 				_, name = token
 				add_label(ids, labels, name, len(tree))
 			else:
@@ -62,28 +62,28 @@ def analyze_semantics(syntax_analyzer):
 
 	def sub_ids(tree, ids):
 		def sub_defs(token_type, mne, name):
-			return (token_type, mne, syn.CONSTANT, name)
+			return (token_type, mne, Tokens.CONSTANT, name)
 
 		def sub_const(token_type, mne, literal):
-			return (token_type, mne, syn.CONSTANT, parse_const_literal(literal))
+			return (token_type, mne, Tokens.CONSTANT, parse_const_literal(literal))
 
 		def sub_labels(token_type, mne, index):
-			return (token_type, mne, syn.LABEL, index)
+			return (token_type, mne, Tokens.LABEL, index)
 
 		processed_tree = []
 
 		for item in tree:
 			token_type, *_ = item
 
-			if token_type is syn.NO_PARAM:
+			if token_type is Tokens.NO_PARAM:
 				processed_tree.append(item)
 				continue
 
 			_, mne, data_type, data = item
 
-			if data_type is syn.IDENTIFIER and data in ids:
+			if data_type is Tokens.IDENTIFIER and data in ids:
 				processed_tree.append(sub_defs(token_type, mne, ids[data]))
-			elif data_type is syn.CONSTANT:
+			elif data_type is Tokens.CONSTANT:
 				processed_tree.append(sub_const(token_type, mne, data))
 			else:
 				processed_tree.append(sub_labels(token_type, mne, labels[data]))
