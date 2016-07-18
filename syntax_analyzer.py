@@ -1,13 +1,7 @@
-from enum import Enum
+from tokens import Tokens
 from peeker import Peeker
 from tokenizer import Tokens as lexer
 from tokenizer import make_tokenizer
-
-class Tokens(Enum):
-	DEFINE, IDENTIFIER, CONSTANT, IMMEDIATE, NO_PARAM, ONE_PARAM, X_INDEX, Y_INDEX, LABEL, X_INDIRECT, INDIRECT_Y = range(11)
-
-	def __repr__(self):
-		return self.name
 
 def make_syntax_analyzer(peekable):
 	def accept(token_type):

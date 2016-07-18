@@ -1,5 +1,5 @@
-define sum $100
-define i $101
+define sum 0
+define i 10
 
 	lda sum
 	ldx i
@@ -11,5 +11,4 @@ loop:
 	adc i
 	jmp loop
 end:
-	brk
 	brk

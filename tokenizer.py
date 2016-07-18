@@ -1,11 +1,5 @@
-from enum import Enum
+from tokens import Tokens
 import re
-
-class Tokens(Enum):
-	MNEMONIC, DEFINE, IDENTIFIER, CONSTANT, SPACES, COLON, HASH, LEFT_BRACKET, RIGHT_BRACKET, X_INDEX, Y_INDEX, NEWLINE, COMMENT, BAD_TOKEN = range(14)
-
-	def __repr__(self):
-		return self.name
 
 def make_matcher(pattern, token):
 	matcher = re.compile(pattern)

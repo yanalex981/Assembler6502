@@ -1,5 +1,5 @@
 from syntax_analyzer import make_syntax_analyzer
-from syntax_analyzer import Tokens as syn
+from tokens import Tokens as syn
 from peeker import Peeker
 from tokenizer import make_tokenizer
 
@@ -35,9 +35,7 @@ def analyze_semantics(syntax_analyzer):
 
 			labels[name] = index
 
-		tree = []
-		labels = {}
-		ids = {}
+		tree, labels, ids = [], {}, {}
 
 		for token in syntax_analyzer:
 			token_type, *_ = token
@@ -96,7 +94,7 @@ def analyze_semantics(syntax_analyzer):
 	check_const_range(ids)
 	tree = sub_ids(tree, ids)
 
-	return (tree, ids, labels)
+	return tree
 
 if __name__ == '__main__':
 	with open('test.asm') as file:
