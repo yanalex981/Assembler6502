@@ -12,6 +12,15 @@ def make_matcher(pattern, token):
 	return match
 
 def make_tokenizer(src):
+	def find_match(src, pos, line):
+		for matcher in rules:
+			match = matcher(src, pos)
+
+			if match is not None:
+				return match
+
+		raise Exception('Error tokenizing at {}:{}: {}'.format(line, pos, src)) # pos is wrong
+
 	mnemonic = {'ldx', 'lsr', 'rti', 'sta', 'bcs', 'brk', 'sed', 'sec', 'beq', 'cpy', 'pla', 'and', 'tax', 'sty', 'dey', 'inx', 'rts', 'sei', 'bne', 'bvc', 'eor', 'asl', 'cmp', 'txs', 'txa', 'jmp', 'ror', 'nop', 'stx', 'inc', 'iny', 'bvs', 'adc', 'cld', 'pha', 'tya', 'ora', 'plp', 'jsr', 'bit', 'lda', 'bmi', 'tsx', 'rol', 'cpx', 'php', 'dex', 'bpl', 'clv', 'clc', 'dec', 'bcc', 'ldy', 'tay', 'sbc', 'cli'}
 	instruction_pattern = '\\b({})\\b'.format('|'.join(mnemonic))
 
@@ -37,23 +46,14 @@ def make_tokenizer(src):
 	pos, line = 0, 1
 
 	while pos < len(src):
-		for matcher in rules:
-			match = matcher(src, pos)
+		match = find_match(src, pos, line)
+		pos += len(match[1])
+		token, _ = match
 
-			if match is None:
-				continue
+		line += 1 if token == Tokens.NEWLINE else 0
 
-			pos += len(match[1])
-			token, _ = match
-
-			line += 1 if token == Tokens.NEWLINE else 0
-
-			if token not in ignore:
-				yield match
-
-			break
-		else:
-			raise Exception('Error tokenizing at {}:{}: {}'.format(line, pos, src)) # pos is wrong
+		if token not in ignore:
+			yield match
 
 if __name__ == '__main__':
 	file = open('test.asm')
