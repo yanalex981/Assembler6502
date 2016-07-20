@@ -13,6 +13,7 @@ def make_syntax_analyzer(peekable):
 
 	def expect(token_type):
 		ttype = accept(token_type)
+
 		if not ttype:
 			raise Exception('Expected {}, but encountered {}'.format(token_type, ttype))
 
