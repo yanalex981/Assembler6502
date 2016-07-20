@@ -1,6 +1,5 @@
 from tokens import Tokens
 from peeker import Peeker
-from tokenizer import make_tokenizer
 
 def make_syntax_analyzer(peekable):
 	def accept(token_type):
@@ -13,7 +12,6 @@ def make_syntax_analyzer(peekable):
 
 	def expect(token_type):
 		ttype = accept(token_type)
-
 		if not ttype:
 			raise Exception('Expected {}, but encountered {}'.format(token_type, ttype))
 
@@ -87,7 +85,7 @@ def make_syntax_analyzer(peekable):
 		elif accept(Tokens.CONSTANT) or accept(Tokens.IDENTIFIER):
 			return direct(mne)
 
-		return (Tokens.NO_PARAM, mne)
+		return (Tokens.NO_PARAM, mne, None, None)
 
 	def label():
 		_, name = expect(Tokens.IDENTIFIER)
@@ -110,6 +108,8 @@ def make_syntax_analyzer(peekable):
 			raise Exception('Syntax error')
 
 if __name__ == '__main__':
+	from tokenizer import make_tokenizer
+
 	with open('test.asm') as file:
 		source = file.read()
 		syntax_analyzer = make_syntax_analyzer(Peeker(make_tokenizer(source)))

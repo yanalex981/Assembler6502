@@ -1,55 +1,17 @@
 from tokens import Tokens
-from syntax_analyzer import make_syntax_analyzer
-from peeker import Peeker
-from tokenizer import make_tokenizer
+from asm_parser import Parser
 
 # TODO merge parser and syntax analyzer
 # TODO maybe move token into its own module as a general set of tokens for this stage of compilation
-def analyze_semantics(syntax_analyzer):
+def analyze_semantics(parser):
 	def parse_const_literal(literal):
-		def is_hex(literal):
-			return literal.startswith('$')
-
 		def parse_hex(literal):
 			return int(literal[1:], 16)
 
 		def parse_dec(literal):
 			return int(literal)
 
-		return parse_hex(literal) if is_hex(literal) else parse_dec(literal)
-
-	def index_names(syntax_analyzer):
-		def add_define(ids, labels, var_name, value):
-			if var_name in ids:
-				raise Exception('The constant "{}" is already a constant'.format(var_name))
-			elif var_name in labels:
-				raise Exception('The constant "{}" is already a label'.format(var_name))
-
-			ids[var_name] = value
-
-		def add_label(ids, labels, name, index):
-			if name in ids:
-				raise Exception('The label "{}" is already a constant'.format(name))
-			elif name in labels:
-				raise Exception('The label "{}" is already a label'.format(name))
-
-			labels[name] = index
-
-		tree, labels, ids = [], {}, {}
-
-		for token in syntax_analyzer:
-			token_type, *_ = token
-
-			if token_type is Tokens.DEFINE:
-				_, var_name, value = token
-				add_define(ids, labels, var_name, value)
-			elif token_type is Tokens.LABEL:
-				_, name = token
-				add_label(ids, labels, name, len(tree))
-			else:
-				tree.append(token)
-
-		return (tree, ids, labels)
+		return parse_hex(literal) if literal.startswith('$') else parse_dec(literal)
 
 	def check_const_range(ids):
 		for name, literal in ids.items():
@@ -90,12 +52,33 @@ def analyze_semantics(syntax_analyzer):
 
 		return processed_tree
 
-	tree, ids, labels = index_names(syntax_analyzer)
-	check_const_range(ids)
-	tree = sub_ids(tree, ids)
+	# check_const_range(ids)
+	# tree = sub_ids(tree, ids)
 
-	return tree
+	# sub params
+	# disambiguate addressing modes
+	# check param range
+
+	def sub_params(instr):
+		mne_type, mne, param_type, value = instr
+
+		if mne_type in {Tokens.NO_PARAM}:
+			return (mne_type, mne, param_type, value)
+
+		if param_type is Tokens.IDENTIFIER:
+			return (mne_type, mne, Tokens.LABEL, parser.get(value))
+
+		return (mne_type, mne, Tokens.CONSTANT, parser.get(value))
+
+	for instr in parser:
+		yield sub_params(instr)
 
 if __name__ == '__main__':
+	from tokenizer import make_tokenizer
+	from syntax_analyzer import make_syntax_analyzer
+	from peeker import Peeker
+
 	with open('test.asm') as file:
-		print(analyze_semantics(make_syntax_analyzer(Peeker(make_tokenizer(file.read())))))
+		# parser.Parser(None)
+		analyzer = analyze_semantics(Parser(make_syntax_analyzer(Peeker(make_tokenizer(file.read())))))
+		print([x for x in analyzer])
