@@ -3,19 +3,29 @@ from peeker import Peeker
 
 class Parser:
 	def __init__(self, stream):
-		self.__instr_counter = 0
-		self.__stream = stream
-		self.__ids = dict()
-		self.__labels = dict()
+		self.__ids = {}
+		self.__labels = {}
 
-	def get(self, name):
-		if name in self.__labels:
-			return self.__labels[name]
+		def index_labels(stream):
+			counter, filtered_src = 0, []
 
-		if name in self.__ids:
-			return self.__ids[name]
+			for line in stream:
+				token_type, *_ = line
 
-		raise Exception('{} is not found'.format(name))
+				if token_type is Tokens.LABEL:
+					_, name = line
+					if name in self.__labels:
+						raise Exception('Label "{}" is already defined'.format(name))
+					self.__labels[name] = counter
+				elif token_type is not Tokens.DEFINE:
+					counter += 1
+					filtered_src.append(line)
+				else:
+					filtered_src.append(line)
+
+			return (x for x in filtered_src)
+
+		self.__stream = index_labels(stream)
 
 	@property
 	def ids(self):
@@ -25,50 +35,25 @@ class Parser:
 	def labels(self):
 		return self.__labels
 
-	def index_name(self, token):
-		def add_define(var_name, value):
-			if var_name in self.__ids:
-				raise Exception('The constant "{}" is already a constant'.format(var_name))
-			elif var_name in self.__labels:
-				raise Exception('The constant "{}" is already a label'.format(var_name))
-
-			self.__ids[var_name] = value
-
-		def add_label(name, index):
-			if name in self.__ids:
-				raise Exception('The label "{}" is already a constant'.format(name))
-			elif name in self.__labels:
-				raise Exception('The label "{}" is already a label'.format(name))
-
-			self.__labels[name] = index
-
-		if token_type is Tokens.DEFINE:
-			_, var_name, value = token
-			add_define(ids, labels, var_name, value)
-		elif token_type is Tokens.LABEL:
-			_, name = token
-			add_label(ids, labels, name, len(tree))
-		else:
-			tree.append(token)
-
-		return (tree, ids, labels)
-
 	def __next__(self):
+		def add_define(name, value):
+			if name in self.__ids:
+				raise Exception('Constant "{}" is already defined'.format(name))
+			elif name in self.__labels:
+				raise Exception('Constant "{}" is already a label'.format(name))
+
+			self.__ids[name] = value
+
 		while True:
 			token = next(self.__stream)
 			token_type, *_ = token
 
 			if token_type not in {Tokens.DEFINE, Tokens.LABEL}:
-				self.__instr_counter += 1
-
 				return token
 
 			if token_type is Tokens.DEFINE:
 				_, name, value = token
-				self.__ids[name] = value
-			elif token_type is Tokens.LABEL:
-				_, name = token
-				self.__labels[name] = self.__instr_counter
+				add_define(name, value)
 
 	def __iter__(self):
 		return self
